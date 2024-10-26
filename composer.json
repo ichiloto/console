@@ -15,7 +15,10 @@
     "autoload": {
         "psr-4": {
             "Ichiloto\\Console\\": "src/"
-        }
+        },
+        "files": [
+            "src/Util/Helpers.php"
+        ]
     },
     "authors": [
         {
