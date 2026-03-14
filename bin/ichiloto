@@ -12,6 +12,9 @@ if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
     exit(1);
 }
 
+use Ichiloto\Console\Commands\BattleCommand;
+use Ichiloto\Console\Commands\GenerateActorCommand;
+use Ichiloto\Console\Commands\GenerateMapCommand;
 use Ichiloto\Console\Commands\PlayCommand;
 use Symfony\Component\Console\Application;
 
@@ -23,6 +26,9 @@ function bootstrap(): void
       ->setDefaultCommand("list")
       ->addCommands([
       new PlayCommand(),
+      new BattleCommand(),
+      new GenerateMapCommand(),
+      new GenerateActorCommand()
     ]);
     $app->run();
   } catch (Exception $exception) {

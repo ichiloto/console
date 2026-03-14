@@ -94,3 +94,11 @@ if (! function_exists('strtoconst') ) {
     return strtoupper(preg_replace('/(?<!^)[A-Z]/', '_$0', $string));
   }
 }
+
+/* Paths */
+if (! function_exists('get_data_path') ) {
+  function get_data_path(string $subPath = ''): string
+  {
+    return Path::join(Path::getWorkingDirectory(), 'Data');
+  }
+}
