@@ -13,6 +13,7 @@ if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
 }
 
 use Ichiloto\Console\Commands\BattleCommand;
+use Ichiloto\Console\Commands\EditCommand;
 use Ichiloto\Console\Commands\GenerateActorCommand;
 use Ichiloto\Console\Commands\GenerateMapCommand;
 use Ichiloto\Console\Commands\PlayCommand;
@@ -27,6 +28,7 @@ function bootstrap(): void
       ->addCommands([
       new PlayCommand(),
       new BattleCommand(),
+      new EditCommand(),
       new GenerateMapCommand(),
       new GenerateActorCommand()
     ]);
