@@ -6,7 +6,7 @@
         "symfony/console": "^8.0",
         "laravel/prompts": "^0.3.1",
         "league/climate": "^3.8",
-        "ichiloto/editor": "dev-main"
+        "ichiloto/editor": "dev-develop"
     },
     "require-dev": {
         "phpstan/phpstan": "^1.12",
