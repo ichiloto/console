@@ -50,6 +50,17 @@ class PlayCommand extends Command
       return $this->launchInTmux($workingDirectory, $mainFile);
     }
 
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($mainFile);
+
+    if (false === passthru($command, $resultCode) ) {
+      $output->writeln("An error occurred while playing the game.");
+      $output->writeln([
+        "Please make sure the main file is executable and contains the game logic.",
+        "Result Code: $resultCode"
+      ], OutputInterface::VERBOSITY_VERBOSE);
+      return Command::FAILURE;
+    }
+
     passthru(sprintf('%s %s', escapeshellcmd(PHP_BINARY), escapeshellarg($mainFile)), $resultCode);
 
     return $resultCode === 0 ? Command::SUCCESS : Command::FAILURE;
