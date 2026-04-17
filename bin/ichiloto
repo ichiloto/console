@@ -16,6 +16,7 @@ use Ichiloto\Console\Commands\BattleCommand;
 use Ichiloto\Console\Commands\EditCommand;
 use Ichiloto\Console\Commands\GenerateActorCommand;
 use Ichiloto\Console\Commands\GenerateMapCommand;
+use Ichiloto\Console\Commands\NewCommand;
 use Ichiloto\Console\Commands\PlayCommand;
 use Symfony\Component\Console\Application;
 
@@ -26,6 +27,7 @@ function bootstrap(): void
     $app
       ->setDefaultCommand("list")
       ->addCommands([
+      new NewCommand(),
       new PlayCommand(),
       new BattleCommand(),
       new EditCommand(),

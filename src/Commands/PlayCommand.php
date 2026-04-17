@@ -61,8 +61,6 @@ class PlayCommand extends Command
       return Command::FAILURE;
     }
 
-    passthru(sprintf('%s %s', escapeshellcmd(PHP_BINARY), escapeshellarg($mainFile)), $resultCode);
-
     return $resultCode === 0 ? Command::SUCCESS : Command::FAILURE;
   }
 
