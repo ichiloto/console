@@ -3,9 +3,10 @@
     "description": "A simple CLI tool for managing games made using the Ichiloto Game Engine.",
     "type": "project",
     "require": {
-        "symfony/console": "^7.1",
+        "symfony/console": "^8.0",
         "laravel/prompts": "^0.3.1",
-        "league/climate": "^3.8"
+        "league/climate": "^3.8",
+        "ichiloto/editor": "dev-main"
     },
     "require-dev": {
         "phpstan/phpstan": "^1.12",
@@ -24,6 +25,15 @@
         {
             "name": "Andrew Masiye",
             "email": "amasiye313@gmail.com"
+        }
+    ],
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../editor",
+            "options": {
+                "symlink": true
+            }
         }
     ],
     "bin": [

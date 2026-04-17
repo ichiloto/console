@@ -35,7 +35,7 @@ final class EditCommand extends Command
         $workingDirectory = $input->getOption('directory') ?? getcwd() ?: '.';
 
         if (is_not_valid_working_dir($workingDirectory)) {
-            $output->writeln("The working directory is not valid: $workingDirectory");
+            $output->writeln('The working directory is not valid: ' . $workingDirectory);
             return Command::FAILURE;
         }
 
@@ -89,20 +89,104 @@ final class EditCommand extends Command
         $binPath = dirname(__DIR__, 2) . '/bin/ichiloto';
         $sessionName = 'ichiloto-editor-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
         $editorCommand = sprintf(
-            'cd %s && %s %s edit --no-tmux -d .',
-            escapeshellarg($workingDirectory),
+            '%s %s edit --no-tmux -d .',
             escapeshellcmd(PHP_BINARY),
-            escapeshellarg($binPath)
+            escapeshellarg($binPath),
         );
-        $command = sprintf(
-            'tmux new-session -A -s %s %s',
-            escapeshellarg($sessionName),
-            escapeshellarg($editorCommand)
-        );
+        $launchCommand = $this->buildCrashPreservingCommand($editorCommand, 'Ichiloto editor');
 
-        passthru($command, $exitCode);
+        if (! $this->tmuxSessionExists($sessionName)) {
+            passthru(sprintf(
+                'tmux new-session -d -s %s -c %s %s',
+                escapeshellarg($sessionName),
+                escapeshellarg($workingDirectory),
+                escapeshellarg($launchCommand),
+            ), $exitCode);
+
+            if ($exitCode !== 0) {
+                return $exitCode;
+            }
+        }
+
+        $this->applyTmuxSessionOptions($sessionName, $this->shouldShowTmuxStatus($workingDirectory));
+        passthru(sprintf('tmux attach-session -t %s', escapeshellarg($sessionName)), $exitCode);
 
         return $exitCode;
+    }
+
+    /**
+     * Builds a shell command that preserves crash output inside tmux.
+     *
+     * @param string $command The wrapped command.
+     * @param string $label The user-facing process label.
+     * @return string
+     */
+    private function buildCrashPreservingCommand(string $command, string $label): string
+    {
+        $script = sprintf(
+            '%s && exit 0 || { printf "
+[%s exited with an error]
+"; exec sh -l; }',
+            $command,
+            $label,
+        );
+
+        return sprintf('sh -lc %s', escapeshellarg($script));
+    }
+
+    /**
+     * Applies tmux options that help preserve crash output.
+     *
+     * @param string $sessionName The tmux session name.
+     * @param bool $showStatus Whether to show the tmux status bar.
+     * @return void
+     */
+    private function applyTmuxSessionOptions(string $sessionName, bool $showStatus): void
+    {
+        shell_exec(sprintf('tmux set-option -t %s status %s 2>/dev/null', escapeshellarg($sessionName), $showStatus ? 'on' : 'off'));
+        shell_exec(sprintf('tmux set-option -t %s alternate-screen off 2>/dev/null', escapeshellarg($sessionName)));
+    }
+
+    /**
+     * Checks whether a tmux session already exists.
+     *
+     * @param string $sessionName The session name.
+     * @return bool
+     */
+    private function tmuxSessionExists(string $sessionName): bool
+    {
+        exec(sprintf('tmux has-session -t %s 2>/dev/null', escapeshellarg($sessionName)), $output, $exitCode);
+
+        return $exitCode === 0;
+    }
+
+    /**
+     * Determines whether tmux should show its status bar for the project.
+     *
+     * @param string $workingDirectory The project root.
+     * @return bool
+     */
+    private function shouldShowTmuxStatus(string $workingDirectory): bool
+    {
+        $configPath = rtrim($workingDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'ichiloto.json';
+
+        if (! is_file($configPath)) {
+            return false;
+        }
+
+        $config = json_decode((string) file_get_contents($configPath), true);
+
+        if (! is_array($config)) {
+            return false;
+        }
+
+        $debug = $config['debug'] ?? [];
+
+        if (! is_array($debug)) {
+            return false;
+        }
+
+        return (bool) ($debug['enabled'] ?? false) && (bool) ($debug['show'] ?? false);
     }
 
     /**
