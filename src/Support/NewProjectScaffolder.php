@@ -18,7 +18,8 @@ final class NewProjectScaffolder
      *   targetDirectory: string,
      *   heroName: string,
      *   heroId: string,
-     *   battleEngine: string
+     *   battleEngine: string,
+     *   titleArt: string
      * } $blueprint
      * @return array{files: string[], directories: string[]}
      */
@@ -100,6 +101,18 @@ final class NewProjectScaffolder
             $this->renderPlayerEntity(),
         );
         $files[] = $this->writeFile(
+            Path::join($blueprint['targetDirectory'], 'assets', 'Graphics', 'System', 'title.txt'),
+            $blueprint['titleArt'],
+        );
+        $files[] = $this->writeFile(
+            Path::join($blueprint['targetDirectory'], 'assets', 'Graphics', 'System', 'game-over.txt'),
+            $this->renderGameOverGraphic(),
+        );
+        $files[] = $this->writeFile(
+            Path::join($blueprint['targetDirectory'], 'assets', 'Graphics', 'Animations', 'battle-transition.txt'),
+            $this->renderBattleTransitionGraphic(),
+        );
+        $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Maps', 'collisions.php'),
             $this->renderCollisionDictionary(),
         );
@@ -156,6 +169,9 @@ final class NewProjectScaffolder
             Path::join($targetDirectory, 'assets', 'Data'),
             Path::join($targetDirectory, 'assets', 'Data', 'Actors'),
             Path::join($targetDirectory, 'assets', 'Data', 'Entities'),
+            Path::join($targetDirectory, 'assets', 'Graphics'),
+            Path::join($targetDirectory, 'assets', 'Graphics', 'Animations'),
+            Path::join($targetDirectory, 'assets', 'Graphics', 'System'),
             Path::join($targetDirectory, 'assets', 'Maps'),
             Path::join($targetDirectory, 'assets', 'Maps', self::STARTING_MAP_ID),
             Path::join($targetDirectory, 'logs'),
@@ -466,7 +482,14 @@ declare(strict_types=1);
 
 use Ichiloto\Engine\Core\Game;
 
-require __DIR__ . '/vendor/autoload.php';
+$autoloadPath = __DIR__ . '/vendor/autoload.php';
+
+if (! file_exists($autoloadPath)) {
+    fwrite(STDERR, "Project dependencies are missing. Run `composer install` in this directory before playing.\n");
+    exit(1);
+}
+
+require $autoloadPath;
 
 $game = new Game(%s);
 $game->run();
@@ -543,6 +566,24 @@ return [
   ],
 ];
 PHP;
+    }
+
+    private function renderGameOverGraphic(): string
+    {
+        return <<<'TXT'
+================
+   GAME OVER
+================
+TXT . PHP_EOL;
+    }
+
+    private function renderBattleTransitionGraphic(): string
+    {
+        return <<<'TXT'
+****************
+*   BATTLE!    *
+****************
+TXT . PHP_EOL;
     }
 
     private function renderActorData(string $heroName): string

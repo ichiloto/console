@@ -19,6 +19,7 @@ This package powers the `ichiloto` executable: it forges new projects, opens the
 - Symfony Console
 - [Laravel Prompts](https://laravel.com/docs/prompts)
 - League CLImate
+- `amasiye/figlet` for title art and terminal wordmarks
 - `ichiloto/editor` as a local Composer dependency during source development
 
 ## Commands
@@ -28,6 +29,7 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
+- `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
 - `ichiloto generate:map` for lightweight map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` as an early development command placeholder
@@ -76,10 +78,26 @@ Useful options:
 ```bash
 ichiloto new my-rpg --hero "Arin"
 ichiloto new my-rpg --battle-engine active_time
+ichiloto new my-rpg --title-font slant
 ichiloto new my-rpg --install
 ichiloto new my-rpg --no-install
 ichiloto new my-rpg --directory /path/to/projects/my-rpg
 ```
+
+Every new project also gets a generated `assets/Graphics/System/title.txt`, so the title scene starts with a real banner instead of a blank placeholder.
+
+## FIGlet Generation
+
+Use `ichiloto generate:figlet` whenever you want to reforge title art or create new terminal banners by hand:
+
+```bash
+ichiloto generate:figlet "Moonfall Legend"
+ichiloto generate:figlet "Moonfall Legend" --style epic
+ichiloto generate:figlet "Moonfall Legend" --font slant --output assets/Graphics/System/title.txt
+ichiloto generate:figlet --list-fonts
+```
+
+The curated `--style` options are tuned for Ichiloto's house look, while `--font` gives you direct access to the installed FIGlet fonts when you want exact control.
 
 ## Runtime Notes
 
@@ -119,6 +137,7 @@ Notes for source development:
 
 - `composer.json` currently resolves `ichiloto/editor` through a local path repository at `../editor`
 - the `edit` command also benefits from a sibling `../engine` checkout so editor previews can resolve engine classes cleanly
+- FIGlet-backed commands are powered directly by the `amasiye/figlet` package that is now part of this repo's Composer dependencies
 - running `./bin/ichiloto list` is the fastest smoke test after dependency changes
 
 ## Project Links

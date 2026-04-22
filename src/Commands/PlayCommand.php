@@ -40,25 +40,57 @@ class PlayCommand extends Command
     $output->writeln('Playing the game in the working directory: ' . $workingDirectory, OutputInterface::VERBOSITY_VERBOSE);
     $config = new AppConfig($input, $output, $workingDirectory);
     $mainFile = Path::join($workingDirectory, $config->get('main'));
+    $autoloadFile = Path::join($workingDirectory, 'vendor', 'autoload.php');
+    $errorLogFile = $this->prepareErrorLogFile($workingDirectory);
 
     if (! file_exists($mainFile)) {
       $output->writeln('The main file does not exist. ' . $mainFile);
       return Command::FAILURE;
     }
 
-    if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
-      return $this->launchInTmux($workingDirectory, $mainFile);
+    if (! file_exists($autoloadFile)) {
+      $output->writeln('Project dependencies are not installed yet. Run `composer install` in the project directory first.');
+      $output->writeln([
+        'Then try `ichiloto play` again.',
+        'Project directory: ' . $workingDirectory,
+      ], OutputInterface::VERBOSITY_VERBOSE);
+
+      return Command::FAILURE;
     }
 
-    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($mainFile);
+    if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
+      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile);
+    }
 
-    if (false === passthru($command, $resultCode) ) {
-      $output->writeln("An error occurred while playing the game.");
-      $output->writeln([
-        "Please make sure the main file is executable and contains the game logic.",
-        "Result Code: $resultCode"
-      ], OutputInterface::VERBOSITY_VERBOSE);
+    $originalWorkingDirectory = getcwd();
+
+    if (! @chdir($workingDirectory)) {
+      $output->writeln('Could not switch to the project directory. ' . $workingDirectory);
       return Command::FAILURE;
+    }
+
+    try {
+      $command = $this->buildPhpLaunchCommand(
+        mainFile: basename($mainFile),
+        errorLogFile: $errorLogFile,
+      );
+
+      if (false === passthru($command, $resultCode) ) {
+        $output->writeln("An error occurred while playing the game.");
+        $output->writeln([
+          "Please make sure the main file is executable and contains the game logic.",
+          "Result Code: $resultCode"
+        ], OutputInterface::VERBOSITY_VERBOSE);
+        return Command::FAILURE;
+      }
+    } finally {
+      if ($originalWorkingDirectory !== false) {
+        @chdir($originalWorkingDirectory);
+      }
+    }
+
+    if ($resultCode !== 0) {
+      $output->writeln('The game exited unexpectedly. Check the error log for details: ' . $errorLogFile);
     }
 
     return $resultCode === 0 ? Command::SUCCESS : Command::FAILURE;
@@ -93,10 +125,10 @@ class PlayCommand extends Command
    * @param string $mainFile The resolved main PHP file.
    * @return int
    */
-  private function launchInTmux(string $workingDirectory, string $mainFile): int
+  private function launchInTmux(string $workingDirectory, string $mainFile, string $errorLogFile): int
   {
     $sessionName = 'ichiloto-play-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
-    $gameCommand = sprintf('%s %s', escapeshellcmd(PHP_BINARY), escapeshellarg($mainFile));
+    $gameCommand = $this->buildPhpLaunchCommand($mainFile, $errorLogFile);
     $launchCommand = $this->buildCrashPreservingCommand($gameCommand, 'Ichiloto game');
 
     if (! $this->tmuxSessionExists($sessionName)) {
@@ -191,5 +223,50 @@ class PlayCommand extends Command
     }
 
     return (bool) ($debug['enabled'] ?? false) && (bool) ($debug['show'] ?? false);
+  }
+
+  /**
+   * Builds the PHP process command used to launch the game's main file.
+   *
+   * Fatal output is suppressed from the terminal and appended to the
+   * project's error log instead, so crash details remain available even when
+   * a legacy runtime clears the screen before the shell redraws.
+   *
+   * @param string $mainFile The main file to execute.
+   * @param string $errorLogFile The error log file to append to.
+   * @return string
+   */
+  private function buildPhpLaunchCommand(string $mainFile, string $errorLogFile): string
+  {
+    return sprintf(
+      '%s -d display_errors=0 -d display_startup_errors=0 -d log_errors=1 -d error_log=%s %s 2>> %s',
+      escapeshellcmd(PHP_BINARY),
+      escapeshellarg($errorLogFile),
+      escapeshellarg($mainFile),
+      escapeshellarg($errorLogFile),
+    );
+  }
+
+  /**
+   * Ensures the project's error log file can receive captured stderr output.
+   *
+   * @param string $workingDirectory The project root.
+   * @return string The resolved error log filename.
+   */
+  private function prepareErrorLogFile(string $workingDirectory): string
+  {
+    $logDirectory = Path::join($workingDirectory, 'logs');
+
+    if (! is_dir($logDirectory)) {
+      mkdir($logDirectory, 0777, true);
+    }
+
+    $errorLogFile = Path::join($logDirectory, 'error.log');
+
+    if (! file_exists($errorLogFile)) {
+      touch($errorLogFile);
+    }
+
+    return $errorLogFile;
   }
 }
