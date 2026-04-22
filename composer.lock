@@ -4,8 +4,70 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "71cd9cbd07be5ff6629f2de9a73c0488",
+    "content-hash": "0b90bc1df8feaf059eb14b78e75c9a41",
     "packages": [
+        {
+            "name": "amasiye/figlet",
+            "version": "1.2.1",
+            "dist": {
+                "type": "path",
+                "url": "../figlet",
+                "reference": "e599b5cac85722eba864d3e2b955d632566ac01d"
+            },
+            "require": {
+                "php": ">=8.2",
+                "symfony/console": "^7.0 || ^8.0"
+            },
+            "require-dev": {
+                "pestphp/pest": "^4.6"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "1.0-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Amasiye\\Figlet\\": "src/Figlet"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Amasiye\\Figlet\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "vendor/bin/pest tests/Unit/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Povilas Susinskas",
+                    "email": "povilassusinskas@gmail.com"
+                },
+                {
+                    "name": "Andrew Masiye",
+                    "email": "amasiye313@gmail.com"
+                }
+            ],
+            "description": "Figlet text generator - PHP",
+            "keywords": [
+                "ascii",
+                "figlet",
+                "github",
+                "php",
+                "text"
+            ],
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
         {
             "name": "assegaiphp/collections",
             "version": "0.3.5",

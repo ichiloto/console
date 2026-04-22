@@ -1,12 +1,13 @@
 {
     "name": "ichiloto/console",
     "description": "A simple CLI tool for managing games made using the Ichiloto Game Engine.",
-    "type": "project",
+    "type": "library",
     "require": {
         "symfony/console": "^8.0",
         "laravel/prompts": "^0.3.1",
         "league/climate": "^3.8",
-        "ichiloto/editor": "dev-develop"
+        "ichiloto/editor": "dev-develop",
+        "amasiye/figlet": "^1.2"
     },
     "require-dev": {
         "phpstan/phpstan": "^1.12",
@@ -28,6 +29,16 @@
         }
     ],
     "repositories": [
+        {
+            "type": "path",
+            "url": "../figlet",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "amasiye/figlet": "1.2.1"
+                }
+            }
+        },
         {
             "type": "path",
             "url": "../editor",

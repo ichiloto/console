@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Support\FigletForge;
 use Ichiloto\Console\Support\NewProjectScaffolder;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -40,6 +41,7 @@ final class NewCommand extends Command
             ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The directory where the project should be forged.')
             ->addOption('hero', null, InputOption::VALUE_REQUIRED, 'The name of the first party member.')
             ->addOption('battle-engine', null, InputOption::VALUE_REQUIRED, 'The battle engine to seed (traditional or active_time).')
+            ->addOption('title-font', null, InputOption::VALUE_REQUIRED, 'The FIGlet font or curated style used to forge the title banner.')
             ->addOption('install', null, InputOption::VALUE_NONE, 'Install Composer dependencies after scaffolding.')
             ->addOption('no-install', null, InputOption::VALUE_NONE, 'Skip Composer dependency installation.');
     }
@@ -48,6 +50,7 @@ final class NewCommand extends Command
     {
         $isInteractive = $input->isInteractive();
         $scaffolder = new NewProjectScaffolder();
+        $figletForge = new FigletForge();
 
         try {
             if ((bool) $input->getOption('install') && (bool) $input->getOption('no-install')) {
@@ -66,9 +69,10 @@ final class NewCommand extends Command
             }
 
             $displayName = $this->titleize($projectLabel);
-            $targetDirectory = $this->resolveTargetDirectory($input, $isInteractive, $directoryName);
+            $targetDirectory = $this->resolveTargetDirectory($input, $directoryName);
             $heroName = $this->resolveHeroName($input, $isInteractive);
             $battleEngine = $this->resolveBattleEngine($input, $isInteractive);
+            $titleArt = $this->resolveTitleArt($input, $isInteractive, $displayName, $figletForge);
             $composerBinary = $this->findComposerBinary();
             $shouldInstall = $this->resolveInstallPreference($input, $isInteractive, $composerBinary !== null);
 
@@ -82,17 +86,18 @@ final class NewCommand extends Command
 
             if ($isInteractive) {
                 table(
-                    ['Quest', 'Destination', 'Vanguard', 'Battle Rhythm', 'Provision Supplies'],
+                    ['Quest', 'Destination', 'Vanguard', 'Battle Rhythm', 'Title Banner', 'Provision Supplies'],
                     [[
                         $displayName,
                         $targetDirectory,
                         $heroName,
                         $battleEngine === 'active_time' ? 'Active Time' : 'Traditional',
+                        $titleArt['font'],
                         $shouldInstall ? 'Yes' : 'Later',
                     ]]
                 );
 
-                note('A starter realm, a first hero, and the baseline archives needed by the editor and runtime will be prepared for you.');
+                note("A starter realm, a first hero, and the baseline archives needed by the editor and runtime will be prepared for you.\n\nTitle banner preview:\n" . $titleArt['art']);
 
                 if (! confirm('Shall we open the gates and begin this quest?', true, 'Forge it', 'Not yet')) {
                     warning('No worries. The realm can wait until you are ready to summon it.');
@@ -107,6 +112,7 @@ final class NewCommand extends Command
                 'heroName' => $heroName,
                 'heroId' => $heroId,
                 'battleEngine' => $battleEngine,
+                'titleArt' => $titleArt['art'],
             ]), 'Forging maps, ledgers, and legends...');
 
             $installFailed = false;
@@ -133,6 +139,7 @@ final class NewCommand extends Command
                 displayName: $displayName,
                 targetDirectory: $targetDirectory,
                 fileCount: count($result['files']),
+                titleFont: $titleArt['font'],
                 dependencyState: $shouldInstall
                     ? ($installFailed ? 'failed' : 'installed')
                     : 'skipped',
@@ -179,7 +186,7 @@ final class NewCommand extends Command
         ));
     }
 
-    private function resolveTargetDirectory(InputInterface $input, bool $isInteractive, string $directoryName): string
+    private function resolveTargetDirectory(InputInterface $input, string $directoryName): string
     {
         $providedDirectory = trim((string) ($input->getOption('directory') ?? ''));
         $defaultDirectory = $this->normalizePath((getcwd() ?: '.') . DIRECTORY_SEPARATOR . $directoryName);
@@ -188,18 +195,7 @@ final class NewCommand extends Command
             return $this->normalizePath($providedDirectory);
         }
 
-        if (! $isInteractive) {
-            return $defaultDirectory;
-        }
-
-        return $this->normalizePath(text(
-            label: 'Where should the realm be forged?',
-            placeholder: $defaultDirectory,
-            default: $defaultDirectory,
-            required: true,
-            validate: static fn(string $value): ?string => trim($value) === '' ? 'Choose a destination directory.' : null,
-            hint: 'Existing non-empty directories will be protected.',
-        ));
+        return $defaultDirectory;
     }
 
     private function resolveHeroName(InputInterface $input, bool $isInteractive): string
@@ -250,6 +246,31 @@ final class NewCommand extends Command
         );
     }
 
+    /**
+     * @param FigletForge $figletForge The title-art generator.
+     * @return array{art: string, font: string, selection: string}
+     */
+    private function resolveTitleArt(
+        InputInterface $input,
+        bool $isInteractive,
+        string $displayName,
+        FigletForge $figletForge,
+    ): array {
+        $selection = trim((string) ($input->getOption('title-font') ?? ''));
+
+        if ($selection === '' && $isInteractive) {
+            $selection = select(
+                label: 'How should the title screen be inscribed?',
+                options: $figletForge->getStyleOptions(),
+                default: FigletForge::DEFAULT_STYLE,
+                hint: 'A FIGlet banner will be written to assets/Graphics/System/title.txt.',
+                info: 'Pick a signature title font preset, or use `ichiloto generate:figlet` later for an exact FIGlet font.',
+            );
+        }
+
+        return $figletForge->forge($displayName, $selection);
+    }
+
     private function resolveInstallPreference(InputInterface $input, bool $isInteractive, bool $composerAvailable): bool
     {
         if ((bool) $input->getOption('install')) {
@@ -298,6 +319,7 @@ final class NewCommand extends Command
         string $displayName,
         string $targetDirectory,
         int $fileCount,
+        string $titleFont,
         string $dependencyState,
         ?string $installOutput,
     ): void {
@@ -317,6 +339,7 @@ final class NewCommand extends Command
 
         if ($isInteractive) {
             info(sprintf('%s has been forged. %d files were prepared for your opening chapter.', $displayName, $fileCount));
+            info(sprintf('Starter title art was inscribed using the `%s` FIGlet font.', $titleFont));
 
             if ($dependencyState === 'installed') {
                 info('Composer finished provisioning the engine and its supplies.');
@@ -330,11 +353,18 @@ final class NewCommand extends Command
                 note('The project is ready. When you are ready, run Composer once before you step into the editor or the runtime.');
             }
 
+            note(sprintf(
+                'To reforge the title banner later, run:%s%s',
+                PHP_EOL,
+                sprintf('ichiloto generate:figlet %s --output assets/Graphics/System/title.txt', escapeshellarg($displayName)),
+            ));
+
             outro("Next steps:\n- {$nextSteps[0]}\n- {$nextSteps[1]}\n- {$nextSteps[2]}" . (isset($nextSteps[3]) ? "\n- {$nextSteps[3]}" : ''));
             return;
         }
 
         $output->writeln(sprintf('<info>%s has been forged at %s.</info>', $displayName, $targetDirectory));
+        $output->writeln(sprintf('<info>Starter title art was inscribed using the "%s" FIGlet font.</info>', $titleFont));
 
         if ($dependencyState === 'installed') {
             $output->writeln('<info>Composer dependencies were installed successfully.</info>');
@@ -351,6 +381,11 @@ final class NewCommand extends Command
         foreach ($nextSteps as $step) {
             $output->writeln(sprintf('  - %s', $step));
         }
+
+        $output->writeln(sprintf(
+            'Title art tip: %s',
+            sprintf('ichiloto generate:figlet %s --output assets/Graphics/System/title.txt', escapeshellarg($displayName)),
+        ));
     }
 
     private function normalizeBattleEngine(string $value): string
