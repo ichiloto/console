@@ -39,7 +39,11 @@ if (! function_exists('strtokebab') ) {
    */
   function strtokebab(string $string): string
   {
-    return strtolower(preg_replace('/(?<!^)[A-Z]/', '-$0', $string));
+    $string = preg_replace('/(?<!^)[A-Z]/', '-$0', trim($string));
+    $string = preg_replace('/[\s_]+/', '-', $string);
+    $string = preg_replace('/-+/', '-', $string);
+
+    return strtolower($string);
   }
 }
 
