@@ -1,0 +1,16 @@
+# Static analysis for the CLI.
+#
+# The engine and the editor are loaded from the project being worked on rather
+# than required here, so their names are ignored: the commands guard on them
+# at runtime.
+#
+# Needs phpstan 2.x. The 1.x line cannot parse `new Thing()->method()`, which
+# is PHP 8.4 syntax this codebase uses; run `composer update` if the analyser
+# reports syntax errors.
+parameters:
+    level: 0
+    paths:
+        - src
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        - '#Ichiloto\\(Engine|Editor)#'
