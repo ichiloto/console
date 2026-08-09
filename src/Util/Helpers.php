@@ -106,3 +106,42 @@ if (! function_exists('get_data_path') ) {
     return Path::join(Path::getWorkingDirectory(), 'Data');
   }
 }
+if (! function_exists('load_engine_autoloader') ) {
+  /**
+   * Loads the engine's classes so a project's data files can be evaluated.
+   *
+   * Map and data files legitimately reference engine types (a heading, a
+   * collision type, a key code), so reading a project means having the engine
+   * loaded. A project installed the normal way carries it in its own vendor
+   * directory; inside this workspace the engine sits beside the console
+   * instead, which is the fallback.
+   *
+   * @param string $workingDirectory The project directory.
+   * @return bool Whether the engine is loaded.
+   */
+  function load_engine_autoloader(string $workingDirectory): bool
+  {
+    if (class_exists(\Ichiloto\Engine\Events\Enumerations\LootType::class)) {
+      return true;
+    }
+
+    $candidates = [
+      rtrim($workingDirectory, DIRECTORY_SEPARATOR) . '/vendor/autoload.php',
+      dirname(__DIR__, 3) . '/engine/vendor/autoload.php',
+    ];
+
+    foreach ($candidates as $autoloadPath) {
+      if (! is_file($autoloadPath)) {
+        continue;
+      }
+
+      require_once $autoloadPath;
+
+      if (class_exists(\Ichiloto\Engine\Events\Enumerations\LootType::class)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+}

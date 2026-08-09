@@ -36,7 +36,7 @@ class ValidateCommand extends Command
       return Command::FAILURE;
     }
 
-    $this->bootstrapDependencies();
+    $this->bootstrapDependencies($workingDirectory);
 
     try {
       $workspace = ProjectWorkspace::fromProject($workingDirectory);
@@ -124,18 +124,19 @@ class ValidateCommand extends Command
   }
 
   /**
-   * Loads the editor and engine autoloaders this command reads projects with.
+   * Loads the editor and the engine, which reading a project needs.
    *
+   * @param string $workingDirectory The project directory.
    * @return void
    */
-  protected function bootstrapDependencies(): void
+  protected function bootstrapDependencies(string $workingDirectory): void
   {
-    foreach (['editor', 'engine'] as $package) {
-      $autoloadPath = dirname(__DIR__, 3) . "/{$package}/vendor/autoload.php";
+    $editorAutoloadPath = dirname(__DIR__, 3) . '/editor/vendor/autoload.php';
 
-      if (is_file($autoloadPath)) {
-        require_once $autoloadPath;
-      }
+    if (! class_exists(ProjectWorkspace::class) && is_file($editorAutoloadPath)) {
+      require_once $editorAutoloadPath;
     }
+
+    load_engine_autoloader($workingDirectory);
   }
 }

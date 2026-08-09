@@ -45,7 +45,7 @@ final class EditCommand extends Command
 
         try {
             $this->bootstrapEditorDependencies();
-            $this->bootstrapEngineDependencies();
+            $this->bootstrapEngineDependencies($workingDirectory);
             $this->bootstrapProjectDependencies($workingDirectory);
             (new Editor($workingDirectory))->run();
         } catch (Throwable $throwable) {
@@ -208,21 +208,16 @@ final class EditCommand extends Command
     }
 
     /**
-     * Loads the local engine autoloader so editor previews can resolve engine types.
+     * Loads the engine so editor previews can resolve the engine types a
+     * project's data files reference.
+     *
+     * @param string $workingDirectory The project directory.
      *
      * @return void
      */
-    private function bootstrapEngineDependencies(): void
+    private function bootstrapEngineDependencies(string $workingDirectory): void
     {
-        if (class_exists(\Ichiloto\Engine\Events\Enumerations\LootType::class)) {
-            return;
-        }
-
-        $autoloadPath = dirname(__DIR__, 3) . '/engine/vendor/autoload.php';
-
-        if (is_file($autoloadPath)) {
-            require_once $autoloadPath;
-        }
+        load_engine_autoloader($workingDirectory);
     }
 
     /**
