@@ -19,6 +19,7 @@ use Ichiloto\Console\Commands\GenerateFigletCommand;
 use Ichiloto\Console\Commands\GenerateMapCommand;
 use Ichiloto\Console\Commands\NewCommand;
 use Ichiloto\Console\Commands\PlayCommand;
+use Ichiloto\Console\Commands\ValidateCommand;
 use Symfony\Component\Console\Application;
 
 function bootstrap(): void
@@ -34,7 +35,8 @@ function bootstrap(): void
       new EditCommand(),
       new GenerateMapCommand(),
       new GenerateActorCommand(),
-      new GenerateFigletCommand()
+      new GenerateFigletCommand(),
+      new ValidateCommand()
     ]);
     $app->run();
   } catch (Exception $exception) {
