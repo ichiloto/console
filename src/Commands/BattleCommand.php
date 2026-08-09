@@ -3,6 +3,8 @@
 namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Battle\Simulation\SimulationReport;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
@@ -19,7 +21,7 @@ use Throwable;
 
 #[AsCommand(
   name: 'battle',
-  description: 'Fight a troop repeatedly and report how the fight balances.',
+  description: 'Play a battle from the arena, or simulate one to balance it.',
 )]
 class BattleCommand extends Command
 {
@@ -27,9 +29,9 @@ class BattleCommand extends Command
   {
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
-      ->addOption('troop', 't', InputOption::VALUE_REQUIRED, 'The troop to fight. Every troop is fought when this is left out.')
-      ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'How many battles to fight per troop.', '200')
-      ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a battle may run before it counts as a slog.', '50');
+      ->addOption('troop', 't', InputOption::VALUE_REQUIRED, 'The troop to fight. Without it the arena opens on the list.')
+      ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'Simulate this many battles instead of playing one.')
+      ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50');
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
@@ -46,6 +48,12 @@ class BattleCommand extends Command
       $output->writeln('<error>The engine could not be loaded for this project.</error>');
 
       return Command::FAILURE;
+    }
+
+    // Playing the fight is the point; simulating it is what you do once you
+    // have played it and want to know what it does a hundred times over.
+    if ($input->getOption('runs') === null) {
+      return $this->play($workingDirectory, $input->getOption('troop'), $output);
     }
 
     $previousDirectory = getcwd();
@@ -95,6 +103,67 @@ class BattleCommand extends Command
     }
 
     return Command::SUCCESS;
+  }
+
+  /**
+   * Opens the arena and hands the terminal to the game.
+   *
+   * @param string $workingDirectory The project directory.
+   * @param string|null $troop The troop to drop straight into, if any.
+   * @param OutputInterface $output Where to report a failure.
+   * @return int The exit code.
+   */
+  protected function play(string $workingDirectory, ?string $troop, OutputInterface $output): int
+  {
+    $previousDirectory = getcwd();
+
+    if (! @chdir($workingDirectory)) {
+      $output->writeln('<error>Could not enter the project directory.</error>');
+
+      return Command::FAILURE;
+    }
+
+    try {
+      // The arena opens on its list of troops; naming one skips straight to
+      // that fight.
+      new Game(
+        $this->projectName($workingDirectory),
+        options: [
+          'starting_scene' => ArenaScene::class,
+          'arena_troop' => $troop ?? '',
+        ]
+      )->run();
+    } catch (Throwable $throwable) {
+      @chdir($previousDirectory ?: '.');
+      $output->writeln('<error>The arena could not start: ' . $throwable->getMessage() . '</error>');
+
+      return Command::FAILURE;
+    }
+
+    @chdir($previousDirectory ?: '.');
+
+    return Command::SUCCESS;
+  }
+
+  /**
+   * Reads the project's name.
+   *
+   * @param string $workingDirectory The project directory.
+   * @return string The name.
+   */
+  protected function projectName(string $workingDirectory): string
+  {
+    $manifest = rtrim($workingDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'ichiloto.json';
+
+    if (is_file($manifest)) {
+      $data = json_decode((string) file_get_contents($manifest), true);
+
+      if (is_array($data) && isset($data['name']) && is_string($data['name'])) {
+        return $data['name'];
+      }
+    }
+
+    return basename(rtrim($workingDirectory, DIRECTORY_SEPARATOR));
   }
 
   /**
