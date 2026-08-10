@@ -13,6 +13,11 @@ parameters:
     level: 3
     paths:
         - src
+    # BattleCommand calls the engine's global asset() helper after loading a
+    # target project's engine autoloader at runtime. Scan its declaration so
+    # PHPStan sees the same function without booting a game project.
+    scanFiles:
+        - ../engine/src/Util/Helpers.php
     reportUnmatchedIgnoredErrors: false
     ignoreErrors:
         - '#Ichiloto\\(Engine|Editor)#'

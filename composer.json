@@ -51,6 +51,7 @@
         "bin/ichiloto"
     ],
     "scripts": {
-        "analyse": "phpstan analyse --memory-limit=1G"
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "test": "@php tests/validate-working-directory.php"
     }
 }
