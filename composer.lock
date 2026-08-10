@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "498594833dc1adb80d6919f5b773f28f",
+    "content-hash": "e45997059660b17bb91a4b21ba06b0f1",
     "packages": [
         {
             "name": "amasiye/figlet",
@@ -169,7 +169,7 @@
             "dist": {
                 "type": "path",
                 "url": "../editor",
-                "reference": "12f9d527c40ef8c4be8b499308e9081465f4cf67"
+                "reference": "9d67130600ba0ad72327be18b3f64a0a5304a87d"
             },
             "require": {
                 "atatusoft-ltd/termutil": "^1.1",
