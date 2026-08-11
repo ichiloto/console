@@ -53,9 +53,11 @@ try {
 
     $projectConfigPath = $projectRoot . '/ichiloto.json';
     $composerPath = $projectRoot . '/composer.json';
+    $inputPath = $projectRoot . '/input.php';
     $manifestPath = $projectRoot . '/assets/Data/save-compatibility.php';
     $project = json_decode((string) file_get_contents($projectConfigPath), true);
     $composer = json_decode((string) file_get_contents($composerPath), true);
+    $inputSource = (string) file_get_contents($inputPath);
     $manifest = require $manifestPath;
 
     if (($project['id'] ?? null) !== 'ichiloto/save-ready-project') {
@@ -77,6 +79,14 @@ try {
 
     if (! in_array($manifestPath, $result['files'], true)) {
         failScaffolderTest('The generated-file report omits the save compatibility manifest.');
+    }
+
+    if (str_contains($inputSource, "'notify' =>")) {
+        failScaffolderTest('New projects expose the development notification action to players.');
+    }
+
+    if (! str_contains($inputSource, "'skit' =>") || ! str_contains($inputSource, '[KeyCode::T, KeyCode::t]')) {
+        failScaffolderTest('New projects do not expose the supported skit action.');
     }
 } finally {
     removeScaffoldedProject($projectRoot);

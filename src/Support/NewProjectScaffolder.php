@@ -467,9 +467,9 @@ return [
     'description' => 'Open the map.',
     'keys' => [KeyCode::M, KeyCode::m],
   ],
-  'notify' => [
-    'description' => 'Create a notification.',
-    'keys' => [KeyCode::N, KeyCode::n],
+  'skit' => [
+    'description' => 'Play an available skit.',
+    'keys' => [KeyCode::T, KeyCode::t],
   ],
   'pause' => [
     'description' => 'Pause the game.',
