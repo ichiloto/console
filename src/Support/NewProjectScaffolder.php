@@ -29,16 +29,17 @@ final class NewProjectScaffolder
         $files = [];
 
         $mainFilename = $blueprint['directoryName'] . '.php';
+        $projectId = 'ichiloto/' . $blueprint['directoryName'];
         $heroPath = Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'Actors', $blueprint['heroId'] . '.php');
         $mapDirectory = Path::join($blueprint['targetDirectory'], 'assets', 'Maps', self::STARTING_MAP_ID);
 
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'ichiloto.json'),
-            $this->renderIchilotoConfig($blueprint['displayName'], $mainFilename),
+            $this->renderIchilotoConfig($projectId, $blueprint['displayName'], $mainFilename),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'composer.json'),
-            $this->renderComposerJson($mainFilename),
+            $this->renderComposerJson($projectId, $mainFilename),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'config.php'),
@@ -83,6 +84,10 @@ final class NewProjectScaffolder
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'skills.php'),
             $this->renderPhpArrayFile([]),
+        );
+        $files[] = $this->writeFile(
+            Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'save-compatibility.php'),
+            $this->renderSaveCompatibilityManifest(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'system.php'),
@@ -251,9 +256,10 @@ final class NewProjectScaffolder
         return $path;
     }
 
-    private function renderIchilotoConfig(string $displayName, string $mainFilename): string
+    private function renderIchilotoConfig(string $projectId, string $displayName, string $mainFilename): string
     {
         return json_encode([
+            'id' => $projectId,
             'name' => $displayName,
             'description' => 'A terminal-born RPG forged with the Ichiloto Engine.',
             'version' => '0.1.0',
@@ -276,9 +282,10 @@ final class NewProjectScaffolder
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
     }
 
-    private function renderComposerJson(string $mainFilename): string
+    private function renderComposerJson(string $projectId, string $mainFilename): string
     {
         return json_encode([
+            'name' => $projectId,
             'description' => 'A terminal-native RPG created with the Ichiloto Engine.',
             'type' => 'project',
             'require' => [
@@ -663,6 +670,16 @@ return [
   '@' => CollisionType::NPC,
 ];
 PHP;
+    }
+
+    private function renderSaveCompatibilityManifest(): string
+    {
+        return $this->renderPhpArrayFile([
+            'contentVersion' => 0,
+            'migrations' => [],
+            'aliases' => [],
+            'tombstones' => [],
+        ]);
     }
 
     /**
