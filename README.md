@@ -29,6 +29,8 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
+- `ichiloto upgrade` for adding mandatory save metadata to projects created by older Console versions
+- `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
 - `ichiloto generate:map` for lightweight map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
@@ -85,6 +87,22 @@ ichiloto new my-rpg --directory /path/to/projects/my-rpg
 ```
 
 Every new project also gets a generated `assets/Graphics/System/title.txt`, so the title scene starts with a real banner instead of a blank placeholder.
+
+### Upgrading an existing project
+
+Projects created before versioned saves were introduced need a permanent
+project id and `assets/Data/save-compatibility.php`. From the project root, run:
+
+```bash
+ichiloto upgrade
+ichiloto validate
+```
+
+The upgrader preserves metadata that already exists. When the id is missing it
+uses a canonical Composer package name when available, otherwise it derives
+`ichiloto/<project-name>`. Preview the result with `--dry-run`, or choose the
+identity explicitly with `--id=vendor/project`. Never change that id after save
+files exist.
 
 ## FIGlet Generation
 

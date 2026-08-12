@@ -58,6 +58,7 @@
         "analyse": "phpstan analyse --memory-limit=1G",
         "test": [
             "@php tests/new-project-save-compatibility.php",
+            "@php tests/legacy-project-upgrade.php",
             "@php tests/validate-working-directory.php"
         ]
     }

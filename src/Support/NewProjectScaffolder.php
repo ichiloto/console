@@ -87,7 +87,7 @@ final class NewProjectScaffolder
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'save-compatibility.php'),
-            $this->renderSaveCompatibilityManifest(),
+            SaveCompatibilityMetadata::renderBaseline(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'system.php'),
@@ -670,16 +670,6 @@ return [
   '@' => CollisionType::NPC,
 ];
 PHP;
-    }
-
-    private function renderSaveCompatibilityManifest(): string
-    {
-        return $this->renderPhpArrayFile([
-            'contentVersion' => 0,
-            'migrations' => [],
-            'aliases' => [],
-            'tombstones' => [],
-        ]);
     }
 
     /**
