@@ -138,6 +138,7 @@ foreach ($reports as $context => $report) {
 try {
     mkdir($temporaryRoot, 0777, true);
     copy($projectRoot . '/ichiloto.json', $temporaryRoot . '/ichiloto.json');
+    copy($projectRoot . '/composer.json', $temporaryRoot . '/composer.json');
     copyDirectory($projectRoot . '/assets', $temporaryRoot . '/assets');
 
     $questPath = $temporaryRoot . '/assets/Data/quests.php';
