@@ -192,17 +192,44 @@ class BattleCommand extends Command
       round($report->averageHpRemaining * 100)
     ));
 
-    foreach ($report->damageDealt as $name => $damage) {
-      $fell = $report->deaths[$name] ?? 0;
-      $line = sprintf('    %-14s %6.1f damage per battle', $name, $damage);
+    // Everyone the run has a number for, not only those who dealt damage:
+    // a healer who dealt none still belongs in the report.
+    $names = array_values(array_unique([
+      ...array_keys($report->damageDealt),
+      ...array_keys($report->healing),
+      ...array_keys($report->hpLost),
+      ...array_keys($report->mitigation),
+      ...array_keys($report->deaths),
+    ]));
 
-      if ($fell > 0) {
-        $line .= sprintf(', fell in %d%% of them', round($fell / $report->runs * 100));
+    foreach ($names as $name) {
+      $parts = [];
+
+      foreach ([
+        'damage' => $report->damageDealt[$name] ?? 0.0,
+        'healing' => $report->healing[$name] ?? 0.0,
+        'HP lost' => $report->hpLost[$name] ?? 0.0,
+        'mitigated' => $report->mitigation[$name] ?? 0.0,
+      ] as $noun => $amount) {
+        if (round((float) $amount, 1) > 0) {
+          $parts[] = sprintf('%.1f %s', $amount, $noun);
+        }
       }
 
+      $fell = $report->deaths[$name] ?? 0;
+
+      if ($fell > 0) {
+        $parts[] = sprintf('fell in %d%%', round($fell / $report->runs * 100));
+      }
+
+      $line = sprintf('    %-14s %s', $name, $parts === [] ? 'nothing recorded' : implode(', ', $parts));
       $output->writeln("<fg=gray>{$line}</>");
     }
 
+    // The seed is what makes a run repeatable, and the simulation's own
+    // limits are part of reading its numbers honestly.
+    $output->writeln(sprintf('<fg=gray>    seed %d   %d runs</>', $report->seed, $report->runs));
+    $output->writeln('<fg=gray>    Simulated battlers attack; they do not guard, cast, or use items.</>');
     $output->writeln('');
   }
 
