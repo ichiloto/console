@@ -2,10 +2,16 @@
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
+use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Battle\Simulation\SimulationReport;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\EquipmentSlot;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -17,6 +23,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Terminal;
 use Throwable;
 
 #[AsCommand(
@@ -89,20 +96,325 @@ class BattleCommand extends Command
     $runs = max(1, (int) $input->getOption('runs'));
 
     $output->writeln('');
-    $output->writeln(sprintf(
-      '  <comment>%s</comment> against %d %s, %d runs each.',
+    $this->line($output, sprintf(
+      '  %s against %d %s, %d runs each.',
       $this->describeParty($party),
       count($troops),
       count($troops) === 1 ? 'troop' : 'troops',
       $runs
-    ));
+    ), 'comment');
     $output->writeln('');
+
+    // What is fighting, before what happened to it: a loadout, an earned
+    // modifier or a stat sitting on its cap explains a result that otherwise
+    // looks like a balance problem.
+    $this->reportParty($output, $party);
 
     foreach ($troops as $troop) {
       $this->report($output, $simulator->simulate($party, $troop, $runs));
+      $this->reportSampleHits($output, $party, $troop, $simulator);
     }
 
+    $this->reportLimits($output);
+
     return Command::SUCCESS;
+  }
+
+  /**
+   * Returns how wide a line may be.
+   *
+   * A report read in a narrow terminal must still be a report, so every line
+   * this command prints is measured against the terminal it is printing to
+   * and cut rather than wrapped into rubble.
+   *
+   * @return int The width, in columns.
+   */
+  protected function width(): int
+  {
+    return max(40, new Terminal()->getWidth());
+  }
+
+  /**
+   * Prints one line, cut to the terminal's width.
+   *
+   * The text is measured before any styling is applied, because a colour tag
+   * costs columns on nobody's screen.
+   *
+   * @param OutputInterface $output Where to print.
+   * @param string $text The line, unstyled.
+   * @param string|null $style The style to wrap it in, if any.
+   * @return void
+   */
+  protected function line(OutputInterface $output, string $text, ?string $style = null): void
+  {
+    $width = $this->width();
+
+    if (mb_strlen($text) > $width) {
+      $text = mb_substr($text, 0, $width - 1) . '…';
+    }
+
+    $output->writeln($style === null ? $text : sprintf('<%s>%s</>', $style, $text));
+  }
+
+  /**
+   * Prints what each party member brings to the fight.
+   *
+   * Every number here is the engine's own projection of the character, read
+   * through `Character::resolveStats()`: this command resolves nothing, caps
+   * nothing and scores nothing itself.
+   *
+   * @param OutputInterface $output Where to print.
+   * @param Party $party The party.
+   * @return void
+   */
+  protected function reportParty(OutputInterface $output, Party $party): void
+  {
+    $this->line($output, '  Party as fought', 'options=bold');
+
+    foreach ($party->battlers->toArray() as $member) {
+      if (! $member instanceof Character) {
+        continue;
+      }
+
+      $this->line($output, sprintf('    %s  level %d', $member->name, $member->level), 'comment');
+      $this->reportLoadout($output, $member);
+      $this->reportPermanentGrowth($output, $member);
+      $this->reportStatLayers($output, $member);
+    }
+
+    $output->writeln('');
+  }
+
+  /**
+   * Prints what a battler is holding, by the identity a save records.
+   *
+   * A display name is what a designer recognises and a stable id is what the
+   * runtime resolves, so both are printed: they are the same thing only
+   * until something is renamed.
+   *
+   * @param OutputInterface $output Where to print.
+   * @param Character $member The battler.
+   * @return void
+   */
+  protected function reportLoadout(OutputInterface $output, Character $member): void
+  {
+    $worn = [];
+
+    foreach ($member->equipment as $slot) {
+      if (! $slot instanceof EquipmentSlot) {
+        continue;
+      }
+
+      if ($slot->equipment instanceof InventoryItem) {
+        $worn[] = sprintf(
+          '      %-10s %s (%s)',
+          $slot->semanticSlot->value,
+          $slot->equipment->name,
+          $slot->equipment->id,
+        );
+      }
+    }
+
+    // Nothing worn is one fact, not five. It is also the ordinary case for a
+    // simulation built from project data, because no project file fills a
+    // slot at this engine head -- the game equips in play.
+    foreach ($worn === [] ? ['      every slot empty'] : $worn as $entry) {
+      $this->line($output, $entry, 'fg=gray');
+    }
+  }
+
+  /**
+   * Prints the permanent growth a battler carries, with its provenance.
+   *
+   * @param OutputInterface $output Where to print.
+   * @param Character $member The battler.
+   * @return void
+   */
+  protected function reportPermanentGrowth(OutputInterface $output, Character $member): void
+  {
+    foreach ($member->permanentGrowth->all() as $modifier) {
+      $this->line($output, sprintf(
+        '      growth     %s  %+d %s  from %s %s',
+        $modifier->id,
+        $modifier->amount,
+        $modifier->stat->value,
+        $modifier->sourceType,
+        $modifier->sourceId,
+      ), 'fg=gray');
+    }
+  }
+
+  /**
+   * Prints what each stat comes to, layer by layer, with what the cap does.
+   *
+   * Every canonical stat is printed, whether or not a layer moved it: the
+   * cap and the room left under it are as much part of reading a fight as
+   * the layers are, and a stat sitting on its cap is invisible until it is
+   * printed.
+   *
+   * @param OutputInterface $output Where to print.
+   * @param Character $member The battler.
+   * @return void
+   */
+  protected function reportStatLayers(OutputInterface $output, Character $member): void
+  {
+    foreach ($member->resolveStats() as $key => $resolution) {
+      $contributions = [];
+
+      foreach ([
+        'nature' => $resolution->actorNatural,
+        'growth' => $resolution->permanent,
+        'gear' => $resolution->equipment,
+        'battle' => $resolution->temporary,
+      ] as $noun => $amount) {
+        if ($amount !== 0) {
+          $contributions[] = sprintf('%+d %s', $amount, $noun);
+        }
+      }
+
+      $this->line($output, sprintf(
+        '      %-13s%d · %d natural%s · %s',
+        $key,
+        $resolution->effectiveValue,
+        $resolution->natural,
+        $contributions === [] ? '' : ', ' . implode(', ', $contributions),
+        $resolution->capLoss > 0
+          ? sprintf('%d lost to the %d cap', $resolution->capLoss, $resolution->cap)
+          : sprintf('%d to the %d cap', $resolution->remainingHeadroom, $resolution->cap),
+      ), 'fg=gray');
+    }
+  }
+
+  /**
+   * Prints one seeded attack per party member, hit by hit.
+   *
+   * The run aggregates say nothing about whether an attack landed, crit, was
+   * guarded, or met an affinity, because the report does not carry those.
+   * The engine does expose them, per hit, through the simulator's own seeded
+   * preview seam, so one deterministic attack is shown for what it is: a
+   * single resolved action, not a rate across the run.
+   *
+   * @param OutputInterface $output Where to print.
+   * @param Party $party The party.
+   * @param Troop $troop The troop.
+   * @param BattleSimulator $simulator The simulator.
+   * @return void
+   */
+  protected function reportSampleHits(
+    OutputInterface $output,
+    Party $party,
+    Troop $troop,
+    BattleSimulator $simulator
+  ): void
+  {
+    $target = null;
+
+    foreach ($troop->members->toArray() as $member) {
+      if ($member instanceof CharacterInterface) {
+        $target = $member;
+        break;
+      }
+    }
+
+    if (! $target instanceof CharacterInterface) {
+      return;
+    }
+
+    $this->line($output, sprintf('    one seeded attack each on %s, not a rate across the run', $target->name), 'fg=gray');
+
+    foreach ($party->battlers->toArray() as $attacker) {
+      if (! $attacker instanceof CharacterInterface) {
+        continue;
+      }
+
+      foreach ($simulator->previewAttack($attacker, $target)->hits() as $hit) {
+        $this->line($output, sprintf('    %-14s %s', $attacker->name, $this->describeHit($hit)), 'fg=gray');
+      }
+    }
+
+    $output->writeln('');
+  }
+
+  /**
+   * Describes one resolved hit in the engine's own terms.
+   *
+   * Every value here is read off the engine's typed hit result. Nothing is
+   * recomputed, and nothing is parsed back out of a message.
+   *
+   * @param CombatHitResult $hit The hit.
+   * @return string The description.
+   */
+  protected function describeHit(CombatHitResult $hit): string
+  {
+    if (! $hit->hit) {
+      return sprintf('missed (%s), %d%% to hit', $hit->missReason, $hit->hitChance);
+    }
+
+    $parts = [sprintf('%d damage', $hit->actualHpLost)];
+
+    if ($hit->actualHpRestored > 0) {
+      $parts[] = sprintf('%d restored', $hit->actualHpRestored);
+    }
+
+    if ($hit->critical) {
+      $parts[] = sprintf('critical ×%.1f', $hit->criticalMultiplier);
+    }
+
+    if ($hit->guardApplied) {
+      $parts[] = 'guarded';
+    }
+
+    if ($hit->elementalOutcome !== ElementalOutcome::NORMAL) {
+      $parts[] = sprintf(
+        '%s %s ×%.1f',
+        $hit->element ?? 'element',
+        $hit->elementalOutcome->value,
+        $hit->elementalMultiplier,
+      );
+    }
+
+    if ($hit->mitigationAmount > 0) {
+      $parts[] = sprintf('%d mitigated (%d%%)', $hit->mitigationAmount, round($hit->mitigationRate * 100));
+    }
+
+    if ($hit->overkill > 0) {
+      $parts[] = sprintf('%d overkill', $hit->overkill);
+    }
+
+    return implode(', ', $parts);
+  }
+
+  /**
+   * Prints what this report cannot say, and what would let it.
+   *
+   * Guard, misses, criticals and elemental outcomes are typed per hit but
+   * are not aggregated across a run, so no honest rate can be printed for
+   * them. Naming the exact values that are missing is more use than a number
+   * inferred from something else.
+   *
+   * @param OutputInterface $output Where to print.
+   * @return void
+   */
+  protected function reportLimits(OutputInterface $output): void
+  {
+    $this->line($output, '  What this report cannot say', 'options=bold');
+
+    foreach ([
+      'Simulated battlers attack. They do not guard, cast, or use items, so no',
+      'guarded, cast or item outcome appears in a run at all.',
+      '',
+      'Miss, critical, guard and Weak/Resist/Null/Absorb rates across a run are',
+      'not reported. They are typed per hit on CombatHitResult, which the',
+      'simulator exposes only through previewAttack(); SimulationReport carries',
+      'no aggregate of them. Reporting them would need SimulationReport to',
+      'carry, per battler: miss and critical counts, guarded-hit counts, and',
+      'counts per ElementalOutcome case. Until it does, the single seeded',
+      'attack above is all this command can honestly show.',
+    ] as $sentence) {
+      $this->line($output, $sentence === '' ? '' : '    ' . $sentence, 'fg=gray');
+    }
+
+    $output->writeln('');
   }
 
   /**
@@ -182,8 +494,16 @@ class BattleCommand extends Command
       default => 'red',
     };
 
-    $output->writeln(sprintf('  <options=bold>%s</>  <fg=%s>%s</>', $report->troop, $colour, $report->verdict()));
-    $output->writeln(sprintf(
+    // Two styles on one line, so the troop name is cut to what is left after
+    // the verdict rather than by the plain-line writer.
+    $verdict = $report->verdict();
+    $room = $this->width() - mb_strlen($verdict) - 4;
+    $troop = mb_strlen($report->troop) > $room && $room > 1
+      ? mb_substr($report->troop, 0, $room - 1) . '…'
+      : $report->troop;
+
+    $output->writeln(sprintf('  <options=bold>%s</>  <fg=%s>%s</>', $troop, $colour, $verdict));
+    $this->line($output, sprintf(
       '    %d%% won, %d%% lost, %d%% unfinished   %.1f turns   %d%% party health left on a win',
       round($winRate * 100),
       round($report->defeats / $report->runs * 100),
@@ -222,14 +542,17 @@ class BattleCommand extends Command
         $parts[] = sprintf('fell in %d%%', round($fell / $report->runs * 100));
       }
 
-      $line = sprintf('    %-14s %s', $name, $parts === [] ? 'nothing recorded' : implode(', ', $parts));
-      $output->writeln("<fg=gray>{$line}</>");
+      $this->line(
+        $output,
+        sprintf('    %-14s %s', $name, $parts === [] ? 'nothing recorded' : implode(', ', $parts)),
+        'fg=gray'
+      );
     }
 
     // The seed is what makes a run repeatable, and the simulation's own
     // limits are part of reading its numbers honestly.
-    $output->writeln(sprintf('<fg=gray>    seed %d   %d runs</>', $report->seed, $report->runs));
-    $output->writeln('<fg=gray>    Simulated battlers attack; they do not guard, cast, or use items.</>');
+    $this->line($output, sprintf('    seed %d   %d runs', $report->seed, $report->runs), 'fg=gray');
+    $this->line($output, '    Simulated battlers attack; they do not guard, cast, or use items.', 'fg=gray');
     $output->writeln('');
   }
 
