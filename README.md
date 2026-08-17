@@ -34,7 +34,7 @@ The CLI currently ships these commands:
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
 - `ichiloto generate:map` for lightweight map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
-- `ichiloto battle` as an early development command placeholder
+- `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 
 ## Getting Started
 
@@ -87,6 +87,34 @@ ichiloto new my-rpg --directory /path/to/projects/my-rpg
 ```
 
 Every new project also gets a generated `assets/Graphics/System/title.txt`, so the title scene starts with a real banner instead of a blank placeholder.
+
+### Balancing a fight
+
+`ichiloto battle` opens the arena so you can play a troop. Give it a run
+count instead and it simulates the fight repeatedly and reports what the
+fight *is*:
+
+```bash
+ichiloto battle --troop "Bat x 2" --runs 100
+```
+
+The report opens with the party as fought — each member's level, what each
+slot holds by display name and stable id, the permanent growth it carries
+with the provenance of each entry, and every canonical stat with its layers,
+its cap, and the room left under that cap or what the cap threw away. Then,
+per troop: win, loss and unfinished shares, average turns, party health left
+on a win, and per battler damage, healing, HP lost, mitigation and how often
+they fell. The seed is printed because it is what makes a run repeatable.
+
+Everything the report prints is the engine's own projection. Nothing is
+recalculated here, and where the engine does not aggregate something across a
+run — miss, critical, Guard and elemental-outcome rates — the report says so
+and names what would supply it, rather than inferring a number. One seeded
+attack per battler is shown from the simulator's preview seam, labelled as
+the single resolved action it is.
+
+Every line is cut to the terminal it is printed to, so the report is still
+readable at forty columns.
 
 ### Upgrading an existing project
 
