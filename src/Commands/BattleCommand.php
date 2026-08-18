@@ -147,13 +147,108 @@ class BattleCommand extends Command
    */
   protected function line(OutputInterface $output, string $text, ?string $style = null): void
   {
-    $width = $this->width();
-
-    if (mb_strlen($text) > $width) {
-      $text = mb_substr($text, 0, $width - 1) . '…';
-    }
+    $text = self::cutToColumns($text, $this->width());
 
     $output->writeln($style === null ? $text : sprintf('<%s>%s</>', $style, $text));
+  }
+
+  /**
+   * Returns how many terminal columns a string occupies.
+   *
+   * A character is not a column. A CJK glyph and most pictographs take two,
+   * a combining mark takes none, and a zero-width joiner sequence is one
+   * emoji however many code points it is written with. Counting characters
+   * and calling it width is how a report that fits on paper runs off the
+   * side of a terminal.
+   *
+   * @param string $text The text.
+   * @return int The columns it occupies.
+   */
+  public static function columnsOf(string $text): int
+  {
+    // Symfony's own tags cost nothing on screen, so they cost nothing here.
+    $plain = (string) preg_replace('/<\/?([a-zA-Z][^<>]*)?>/', '', $text);
+    $width = mb_strwidth($plain, 'UTF-8');
+
+    // mb_strwidth knows the East Asian widths but not the emoji ranges, and
+    // it counts a joined sequence once per code point.
+    foreach (preg_split('//u', $plain, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $character) {
+      $code = mb_ord($character, 'UTF-8');
+
+      if ($code === false) {
+        continue;
+      }
+
+      if ($code === 0x200D) {
+        // A zero-width joiner: the glyphs it binds are drawn as one.
+        $width -= 2;
+
+        continue;
+      }
+
+      if (self::isCombining($code)) {
+        $width -= 1;
+
+        continue;
+      }
+
+      if (self::isWideEmoji($code) && mb_strwidth($character, 'UTF-8') === 1) {
+        $width += 1;
+      }
+    }
+
+    return max(0, $width);
+  }
+
+  /**
+   * Cuts a string to a number of terminal columns.
+   *
+   * @param string $text The text.
+   * @param int $columns The columns available.
+   * @return string The text, no wider than that.
+   */
+  public static function cutToColumns(string $text, int $columns): string
+  {
+    if (self::columnsOf($text) <= $columns) {
+      return $text;
+    }
+
+    $kept = '';
+
+    foreach (preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $character) {
+      // One column is held back for the ellipsis that says it was cut.
+      if (self::columnsOf($kept . $character) > $columns - 1) {
+        break;
+      }
+
+      $kept .= $character;
+    }
+
+    return $kept . '…';
+  }
+
+  /**
+   * Returns whether a code point is a combining mark, which draws on the
+   * character before it rather than beside it.
+   */
+  private static function isCombining(int $code): bool
+  {
+    return ($code >= 0x0300 && $code <= 0x036F)
+      || ($code >= 0x1AB0 && $code <= 0x1AFF)
+      || ($code >= 0x20D0 && $code <= 0x20FF)
+      || ($code >= 0xFE00 && $code <= 0xFE0F)
+      || ($code >= 0xFE20 && $code <= 0xFE2F);
+  }
+
+  /**
+   * Returns whether a code point is an emoji drawn two columns wide.
+   */
+  private static function isWideEmoji(int $code): bool
+  {
+    return ($code >= 0x1F300 && $code <= 0x1FAFF)
+      || ($code >= 0x1F000 && $code <= 0x1F2FF)
+      || ($code >= 0x2600 && $code <= 0x27BF)
+      || ($code >= 0x2B00 && $code <= 0x2BFF);
   }
 
   /**
@@ -322,15 +417,33 @@ class BattleCommand extends Command
 
     $this->line($output, sprintf('    one seeded attack each on %s, not a rate across the run', $target->name), 'fg=gray');
 
+    // Every preview starts from the state the last one started from, and
+    // the party and troop are left exactly as they were found: a report is
+    // a reading, not a rehearsal.
+    $baseline = [
+      $target->stats->currentHp,
+      $target->stats->currentMp,
+    ];
+
     foreach ($party->battlers->toArray() as $attacker) {
       if (! $attacker instanceof CharacterInterface) {
         continue;
       }
 
+      $attackerHealth = [$attacker->stats->currentHp, $attacker->stats->currentMp];
+      $target->stats->currentHp = $baseline[0];
+      $target->stats->currentMp = $baseline[1];
+
       foreach ($simulator->previewAttack($attacker, $target)->hits() as $hit) {
         $this->line($output, sprintf('    %-14s %s', $attacker->name, $this->describeHit($hit)), 'fg=gray');
       }
+
+      $attacker->stats->currentHp = $attackerHealth[0];
+      $attacker->stats->currentMp = $attackerHealth[1];
     }
+
+    $target->stats->currentHp = $baseline[0];
+    $target->stats->currentMp = $baseline[1];
 
     $output->writeln('');
   }
@@ -503,11 +616,21 @@ class BattleCommand extends Command
       : $report->troop;
 
     $output->writeln(sprintf('  <options=bold>%s</>  <fg=%s>%s</>', $troop, $colour, $verdict));
+    // Raw counts beside the shares: a percentage of five runs and a
+    // percentage of five hundred read the same and mean very different
+    // things.
     $this->line($output, sprintf(
-      '    %d%% won, %d%% lost, %d%% unfinished   %.1f turns   %d%% party health left on a win',
+      '    %d runs: %d won (%d%%), %d lost (%d%%), %d unfinished (%d%%)',
+      $report->runs,
+      $report->victories,
       round($winRate * 100),
+      $report->defeats,
       round($report->defeats / $report->runs * 100),
+      $report->stalemates,
       round($report->stalemates / $report->runs * 100),
+    ));
+    $this->line($output, sprintf(
+      '    %.1f turns   %d%% party health left on a win',
       $report->averageTurns,
       round($report->averageHpRemaining * 100)
     ));
@@ -551,7 +674,7 @@ class BattleCommand extends Command
 
     // The seed is what makes a run repeatable, and the simulation's own
     // limits are part of reading its numbers honestly.
-    $this->line($output, sprintf('    seed %d   %d runs', $report->seed, $report->runs), 'fg=gray');
+    $this->line($output, sprintf('    seed %d', $report->seed), 'fg=gray');
     $this->line($output, '    Simulated battlers attack; they do not guard, cast, or use items.', 'fg=gray');
     $output->writeln('');
   }

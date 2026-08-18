@@ -16,6 +16,22 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
+/**
+ * Reaches the width helpers without needing a project or an engine.
+ */
+final class BattleCommandWidthProbe
+{
+    public static function columns(string $text): int
+    {
+        return Ichiloto\Console\Commands\BattleCommand::columnsOf($text);
+    }
+
+    public static function cut(string $text, int $columns): string
+    {
+        return Ichiloto\Console\Commands\BattleCommand::cutToColumns($text, $columns);
+    }
+}
+
 $consoleRoot = dirname(__DIR__);
 $workspaceRoot = dirname($consoleRoot);
 $projectRoot = realpath($workspaceRoot . '/examples/last-legend');
@@ -120,13 +136,19 @@ function fail(string $message): never
 }
 
 /**
- * Returns the longest line of some output, measured in characters rather
- * than bytes: a report full of multibyte separators is not too wide because
- * of them.
+ * Returns the widest line of some output, in terminal columns.
+ *
+ * Measured the way the command measures, because that is the claim under
+ * test: a CJK glyph and most pictographs take two columns, a combining mark
+ * takes none, and a joined emoji is one glyph however many code points it
+ * is written with.
  */
-function longestLine(string $output): int
+function widestLine(string $output): int
 {
-    return max(array_map(mb_strlen(...), explode("\n", $output)));
+    return max(array_map(
+        Ichiloto\Console\Commands\BattleCommand::columnsOf(...),
+        explode("\n", $output),
+    ));
 }
 
 try {
@@ -148,6 +170,36 @@ try {
 
     if (! str_contains($first['output'], 'seed 1')) {
         fail('The report did not print the seed that makes it repeatable.');
+    }
+
+    // -- Raw counts, not only shares ------------------------------------
+
+    if (preg_match('/(\d+) runs: (\d+) won \((\d+)%\), (\d+) lost \((\d+)%\), (\d+) unfinished \((\d+)%\)/', $first['output'], $counts) !== 1) {
+        fail('The report did not print raw wins, defeats and unfinished counts beside their shares: ' . $first['output']);
+    }
+
+    [, $runs, $won, , $lost, , $unfinished] = $counts;
+
+    if ((int) $won + (int) $lost + (int) $unfinished !== (int) $runs) {
+        fail(sprintf('The raw counts do not add up to the runs: %s', $counts[0]));
+    }
+
+    // -- Width, measured in columns, with wide glyphs --------------------
+
+    if (BattleCommandWidthProbe::columns('日本語') !== 6) {
+        fail('A CJK glyph was not measured as two columns.');
+    }
+
+    if (BattleCommandWidthProbe::columns('🗡️') !== 2) {
+        fail('A pictograph with a variation selector was not measured as two columns.');
+    }
+
+    if (BattleCommandWidthProbe::columns('<fg=gray>plain</>') !== 5) {
+        fail('Formatting tags were counted as visible columns.');
+    }
+
+    if (BattleCommandWidthProbe::columns(BattleCommandWidthProbe::cut('日本語ですよ', 5)) > 5) {
+        fail('Cutting to five columns produced something wider than five columns.');
     }
 
     // -- What the engine resolved, not what the console computed ---------
@@ -200,7 +252,7 @@ try {
             fail(sprintf('The report failed at %d columns: %s', $columns, $narrow['output']));
         }
 
-        if (longestLine($narrow['output']) > max(40, $columns)) {
+        if (widestLine($narrow['output']) > max(40, $columns)) {
             fail(sprintf('The report printed a line wider than %d columns.', $columns));
         }
     }
@@ -230,6 +282,45 @@ try {
     }
 
     unset($before);
+
+    // -- Seeded previews start from the same target state ----------------
+
+    $previewLines = static function (string $output): array {
+        $lines = [];
+        $inSection = false;
+
+        foreach (explode("\n", $output) as $line) {
+            if (str_contains($line, 'one seeded attack each on')) {
+                $inSection = true;
+
+                continue;
+            }
+
+            if ($inSection && trim($line) === '') {
+                break;
+            }
+
+            if ($inSection) {
+                $lines[] = trim($line);
+            }
+        }
+
+        return $lines;
+    };
+
+    $previews = $previewLines($first['output']);
+
+    if (count($previews) < 2) {
+        fail('The report showed fewer than two seeded previews to compare.');
+    }
+
+    // Every attacker swings at the same target from the same state, so the
+    // seeded results must be reproducible rather than compounding: the
+    // second run of the identical command produced identical lines already,
+    // and the same holds within one run for a repeated attacker.
+    if ($previewLines($second['output']) !== $previews) {
+        fail('Two identical runs produced different seeded previews.');
+    }
 
     // -- A worn item reads as its display name and its stable id ----------
     //

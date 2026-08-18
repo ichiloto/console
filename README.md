@@ -102,9 +102,10 @@ The report opens with the party as fought — each member's level, what each
 slot holds by display name and stable id, the permanent growth it carries
 with the provenance of each entry, and every canonical stat with its layers,
 its cap, and the room left under that cap or what the cap threw away. Then,
-per troop: win, loss and unfinished shares, average turns, party health left
-on a win, and per battler damage, healing, HP lost, mitigation and how often
-they fell. The seed is printed because it is what makes a run repeatable.
+per troop: raw wins, losses and unfinished runs beside their shares, average
+turns, party health left on a win, and per battler damage, healing, HP lost,
+mitigation and how often they fell. The seed is printed because it is what
+makes a run repeatable.
 
 Everything the report prints is the engine's own projection. Nothing is
 recalculated here, and where the engine does not aggregate something across a
@@ -113,7 +114,9 @@ and names what would supply it, rather than inferring a number. One seeded
 attack per battler is shown from the simulator's preview seam, labelled as
 the single resolved action it is.
 
-Every line is cut to the terminal it is printed to, so the report is still
+Every line is cut to the terminal it is printed to, measured in the columns
+a glyph actually occupies rather than in characters, so a name written in
+CJK or carrying an emoji cannot push a line off the side. The report stays
 readable at forty columns.
 
 ### Upgrading an existing project
