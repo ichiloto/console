@@ -114,6 +114,13 @@ and names what would supply it, rather than inferring a number. One seeded
 attack per battler is shown from the simulator's preview seam, labelled as
 the single resolved action it is.
 
+The report is a reading of the project, not a rehearsal on it. Everything a
+party or a troop holds is recorded before anything runs and put back before
+each troop is simulated, before each attacker previews — so every attacker
+swings at the same target from the same state — and once more when the
+report ends, whether it ends in the last line or in an error. Nothing is
+written to the project.
+
 Every line is cut to the terminal it is printed to, measured in the columns
 a glyph actually occupies rather than in characters, so a name written in
 CJK or carrying an emoji cannot push a line off the side. The report stays
