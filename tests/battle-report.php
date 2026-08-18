@@ -154,6 +154,12 @@ function widestLine(string $output): int
 try {
     copyProject($projectRoot, $temporaryRoot);
 
+    // The width contract is the engine's, so the engine has to be loaded
+    // before it can be asked anything.
+    if (is_file($temporaryRoot . '/vendor/autoload.php')) {
+        require_once $temporaryRoot . '/vendor/autoload.php';
+    }
+
     // -- Deterministic output --------------------------------------------
 
     $first = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', 'Bat x 2', '-r', '5']);
@@ -257,6 +263,121 @@ try {
         }
     }
 
+    // -- A troop whose name is wide, end to end --------------------------
+
+    $troopsPath = $temporaryRoot . '/assets/Data/troops.php';
+    $troops = (string) file_get_contents($troopsPath);
+    $wideName = '日本語の敵👨‍👩‍👧‍👦テスト';
+    $renamed = preg_replace("/'name' => 'Bat x 2'/", sprintf("'name' => '%s'", $wideName), $troops, 1);
+
+    if ($renamed === null || $renamed === $troops) {
+        fail('The wide-name fixture could not rename a troop.');
+    }
+
+    file_put_contents($troopsPath, $renamed);
+
+    foreach ([40, 60, 100, 200] as $columns) {
+        $wide = battleReport(
+            $consoleBin,
+            $consoleRoot,
+            ['-d', $temporaryRoot, '-t', $wideName, '-r', '2'],
+            $columns,
+        );
+
+        if ($wide['exitCode'] !== 0) {
+            fail(sprintf('A troop named in CJK and emoji failed at %d columns: %s', $columns, $wide['output']));
+        }
+
+        foreach (explode("\n", $wide['output']) as $line) {
+            $drawn = Ichiloto\Console\Commands\BattleCommand::columnsOf($line);
+
+            if ($drawn > max(40, $columns)) {
+                fail(sprintf(
+                    'A line drew %d columns in a %d-column terminal: %s',
+                    $drawn,
+                    $columns,
+                    $line,
+                ));
+            }
+        }
+    }
+
+    file_put_contents($troopsPath, $troops);
+
+    // -- A preview leaves every battler exactly as it found it ------------
+
+    if (class_exists(\Ichiloto\Engine\Entities\Party::class)) {
+        $previousDirectory = getcwd();
+        chdir($temporaryRoot);
+
+        // Building a troop reads the enemy store, the way the command does
+        // before it loads anything.
+        foreach ([
+            \Ichiloto\Engine\Util\Config\ProjectConfig::class,
+            \Ichiloto\Engine\Util\Stores\ItemStore::class,
+            \Ichiloto\Engine\Util\Stores\EnemyStore::class,
+        ] as $store) {
+            if (! \Ichiloto\Engine\Util\Config\ConfigStore::has($store)) {
+                \Ichiloto\Engine\Util\Config\ConfigStore::put($store, new $store());
+            }
+        }
+
+        $system = (static fn(): mixed => require $temporaryRoot . '/assets/Data/system.php')();
+        $members = [];
+
+        foreach ((array) ($system['startingParty'] ?? []) as $member) {
+            $data = (static fn(): mixed => require $temporaryRoot . "/assets/Data/Actors/{$member}.php")();
+
+            if (is_array($data) && isset($data['data'])) {
+                $members[] = $data['data'];
+            }
+        }
+
+        $party = \Ichiloto\Engine\Entities\Party::fromArray($members);
+        $troopData = null;
+
+        foreach ((array) (static fn(): mixed => require $temporaryRoot . '/assets/Data/troops.php')() as $candidate) {
+            if (is_array($candidate) && ($candidate['name'] ?? '') === 'Bat x 2') {
+                $troopData = $candidate;
+            }
+        }
+
+        $troop = \Ichiloto\Engine\Entities\Troop::fromArray((array) $troopData);
+        $battlers = [...$party->battlers->toArray(), ...$troop->members->toArray()];
+
+        // Everything a resolved attack can write: health, states, stages,
+        // flags and whatever feedback properties a battler declares.
+        $before = Ichiloto\Console\Commands\BattleCommand::mutableStateOf($battlers);
+
+        $command = new Ichiloto\Console\Commands\BattleCommand();
+        $render = new ReflectionMethod($command, 'reportSampleHits');
+        $render->invoke(
+            $command,
+            new Symfony\Component\Console\Output\BufferedOutput(),
+            $party,
+            $troop,
+            new \Ichiloto\Engine\Battle\Simulation\BattleSimulator(),
+        );
+
+        $after = Ichiloto\Console\Commands\BattleCommand::mutableStateOf($battlers);
+
+        if ($after !== $before) {
+            $changed = [];
+
+            foreach ($after as $id => $state) {
+                foreach ($state as $name => $value) {
+                    if (($before[$id][$name] ?? null) !== $value) {
+                        $changed[] = sprintf('%s: %s -> %s', $name, var_export($before[$id][$name] ?? null, true), var_export($value, true));
+                    }
+                }
+            }
+
+            fail('Reporting changed the party or troop: ' . implode(', ', $changed));
+        }
+
+        chdir($previousDirectory ?: '.');
+    }
+
     // -- Exit codes ------------------------------------------------------
 
     $missingTroop = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', 'No Such Troop', '-r', '2']);
@@ -331,10 +452,6 @@ try {
 
     if (! str_contains($first['output'], 'every slot empty')) {
         fail('The report did not say that a project-data party wears nothing.');
-    }
-
-    if (is_file($temporaryRoot . '/vendor/autoload.php')) {
-        require_once $temporaryRoot . '/vendor/autoload.php';
     }
 
     if (class_exists(\Ichiloto\Engine\Entities\Character::class)) {

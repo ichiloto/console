@@ -14,6 +14,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
@@ -155,11 +156,12 @@ class BattleCommand extends Command
   /**
    * Returns how many terminal columns a string occupies.
    *
-   * A character is not a column. A CJK glyph and most pictographs take two,
-   * a combining mark takes none, and a zero-width joiner sequence is one
-   * emoji however many code points it is written with. Counting characters
-   * and calling it width is how a report that fits on paper runs off the
-   * side of a terminal.
+   * A character is not a column: a CJK glyph and most pictographs take two,
+   * a combining mark takes none, and a joined emoji sequence is one glyph
+   * however many code points it is written with. The engine already owns
+   * that contract in `TerminalText`, and it is the one the game draws its
+   * own screens with, so this asks it rather than keeping a second opinion
+   * about how wide a glyph is.
    *
    * @param string $text The text.
    * @return int The columns it occupies.
@@ -167,37 +169,7 @@ class BattleCommand extends Command
   public static function columnsOf(string $text): int
   {
     // Symfony's own tags cost nothing on screen, so they cost nothing here.
-    $plain = (string) preg_replace('/<\/?([a-zA-Z][^<>]*)?>/', '', $text);
-    $width = mb_strwidth($plain, 'UTF-8');
-
-    // mb_strwidth knows the East Asian widths but not the emoji ranges, and
-    // it counts a joined sequence once per code point.
-    foreach (preg_split('//u', $plain, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $character) {
-      $code = mb_ord($character, 'UTF-8');
-
-      if ($code === false) {
-        continue;
-      }
-
-      if ($code === 0x200D) {
-        // A zero-width joiner: the glyphs it binds are drawn as one.
-        $width -= 2;
-
-        continue;
-      }
-
-      if (self::isCombining($code)) {
-        $width -= 1;
-
-        continue;
-      }
-
-      if (self::isWideEmoji($code) && mb_strwidth($character, 'UTF-8') === 1) {
-        $width += 1;
-      }
-    }
-
-    return max(0, $width);
+    return TerminalText::displayWidth(self::withoutTags($text));
   }
 
   /**
@@ -213,42 +185,20 @@ class BattleCommand extends Command
       return $text;
     }
 
-    $kept = '';
-
-    foreach (preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $character) {
-      // One column is held back for the ellipsis that says it was cut.
-      if (self::columnsOf($kept . $character) > $columns - 1) {
-        break;
-      }
-
-      $kept .= $character;
-    }
-
-    return $kept . '…';
+    // One column is held back for the ellipsis that says it was cut, and
+    // the cut itself lands on a symbol boundary rather than inside a glyph.
+    return TerminalText::truncateToWidth(self::withoutTags($text), max(0, $columns - 1)) . '…';
   }
 
   /**
-   * Returns whether a code point is a combining mark, which draws on the
-   * character before it rather than beside it.
+   * Returns text with Symfony's formatting tags removed.
+   *
+   * @param string $text The text.
+   * @return string The visible text.
    */
-  private static function isCombining(int $code): bool
+  private static function withoutTags(string $text): string
   {
-    return ($code >= 0x0300 && $code <= 0x036F)
-      || ($code >= 0x1AB0 && $code <= 0x1AFF)
-      || ($code >= 0x20D0 && $code <= 0x20FF)
-      || ($code >= 0xFE00 && $code <= 0xFE0F)
-      || ($code >= 0xFE20 && $code <= 0xFE2F);
-  }
-
-  /**
-   * Returns whether a code point is an emoji drawn two columns wide.
-   */
-  private static function isWideEmoji(int $code): bool
-  {
-    return ($code >= 0x1F300 && $code <= 0x1FAFF)
-      || ($code >= 0x1F000 && $code <= 0x1F2FF)
-      || ($code >= 0x2600 && $code <= 0x27BF)
-      || ($code >= 0x2B00 && $code <= 0x2BFF);
+    return (string) preg_replace('/<\/?([a-zA-Z][^<>]*)?>/', '', $text);
   }
 
   /**
@@ -418,34 +368,141 @@ class BattleCommand extends Command
     $this->line($output, sprintf('    one seeded attack each on %s, not a rate across the run', $target->name), 'fg=gray');
 
     // Every preview starts from the state the last one started from, and
-    // the party and troop are left exactly as they were found: a report is
-    // a reading, not a rehearsal.
-    $baseline = [
-      $target->stats->currentHp,
-      $target->stats->currentMp,
-    ];
+    // every battler is put back exactly as it was found. A report is a
+    // reading of the project, not a rehearsal on it.
+    $restore = self::mutableStateOf([$target, ...$party->battlers->toArray()]);
+    $targetBaseline = self::mutableStateOf([$target])[spl_object_id($target)] ?? [];
 
     foreach ($party->battlers->toArray() as $attacker) {
       if (! $attacker instanceof CharacterInterface) {
         continue;
       }
 
-      $attackerHealth = [$attacker->stats->currentHp, $attacker->stats->currentMp];
-      $target->stats->currentHp = $baseline[0];
-      $target->stats->currentMp = $baseline[1];
+      // The same starting target for each attacker, so the second is not
+      // swinging at a battler the first already hurt.
+      self::restoreMutableState([$target], [spl_object_id($target) => $targetBaseline]);
 
       foreach ($simulator->previewAttack($attacker, $target)->hits() as $hit) {
         $this->line($output, sprintf('    %-14s %s', $attacker->name, $this->describeHit($hit)), 'fg=gray');
       }
-
-      $attacker->stats->currentHp = $attackerHealth[0];
-      $attacker->stats->currentMp = $attackerHealth[1];
     }
 
-    $target->stats->currentHp = $baseline[0];
-    $target->stats->currentMp = $baseline[1];
+    self::restoreMutableState([$target, ...$party->battlers->toArray()], $restore);
 
     $output->writeln('');
+  }
+
+  /**
+   * Records everything a resolved attack can change about a battler.
+   *
+   * Health is the obvious part, but a resolver also writes states, stat
+   * stages, guard flags and whatever feedback properties a battler's class
+   * declares. Snapshotting the whole mutable surface is what makes the
+   * difference between a report that reads the project and one that quietly
+   * plays a round of combat on it.
+   *
+   * @param array<int, mixed> $battlers The battlers.
+   * @return array<int, array<string, mixed>> The state, by object id.
+   */
+  public static function mutableStateOf(array $battlers): array
+  {
+    $state = [];
+
+    foreach ($battlers as $battler) {
+      if (! is_object($battler)) {
+        continue;
+      }
+
+      $snapshot = [];
+
+      foreach (self::realProperties($battler) as $name => $value) {
+        if (is_object($value)) {
+          // A value object the resolver writes through -- stats, and
+          // anything shaped like it -- is recorded by what it holds, not by
+          // which instance holds it.
+          foreach (self::realProperties($value) as $inner => $innerValue) {
+            if (! is_object($innerValue)) {
+              $snapshot[$name . '.' . $inner] = $innerValue;
+            }
+          }
+
+          continue;
+        }
+
+        $snapshot[$name] = $value;
+      }
+
+      $state[spl_object_id($battler)] = $snapshot;
+    }
+
+    return $state;
+  }
+
+  /**
+   * Returns the properties an object actually stores.
+   *
+   * A property whose value is computed on every read holds no state, so it
+   * cannot be changed and cannot be restored -- and comparing two reads of
+   * one would report a difference where nothing happened.
+   *
+   * @param object $subject The object.
+   * @return array<string, mixed> The stored values, by name.
+   */
+  private static function realProperties(object $subject): array
+  {
+    $values = [];
+
+    foreach (new \ReflectionObject($subject)->getProperties() as $property) {
+      if ($property->isStatic() || $property->isVirtual() || ! $property->isInitialized($subject)) {
+        continue;
+      }
+
+      $values[$property->getName()] = $property->getValue($subject);
+    }
+
+    return $values;
+  }
+
+  /**
+   * Puts every battler back exactly as it was found.
+   *
+   * @param array<int, mixed> $battlers The battlers.
+   * @param array<int, array<string, mixed>> $state The recorded state.
+   * @return void
+   */
+  public static function restoreMutableState(array $battlers, array $state): void
+  {
+    foreach ($battlers as $battler) {
+      if (! is_object($battler)) {
+        continue;
+      }
+
+      foreach ($state[spl_object_id($battler)] ?? [] as $name => $value) {
+        $parts = explode('.', $name, 2);
+        $target = $battler;
+
+        if (count($parts) === 2) {
+          $holder = self::realProperties($battler)[$parts[0]] ?? null;
+
+          if (! is_object($holder)) {
+            continue;
+          }
+
+          $target = $holder;
+          $name = $parts[1];
+        }
+
+        $property = new \ReflectionObject($target)->hasProperty($name)
+          ? new \ReflectionProperty($target, $name)
+          : null;
+
+        if ($property === null || $property->isVirtual() || $property->isReadOnly()) {
+          continue;
+        }
+
+        $property->setValue($target, $value);
+      }
+    }
   }
 
   /**
@@ -607,13 +664,12 @@ class BattleCommand extends Command
       default => 'red',
     };
 
-    // Two styles on one line, so the troop name is cut to what is left after
-    // the verdict rather than by the plain-line writer.
+    // Two styles on one line, so the troop name is cut to what is left
+    // after the verdict -- measured in the columns a glyph actually
+    // occupies, like every other line this command prints.
     $verdict = $report->verdict();
-    $room = $this->width() - mb_strlen($verdict) - 4;
-    $troop = mb_strlen($report->troop) > $room && $room > 1
-      ? mb_substr($report->troop, 0, $room - 1) . '…'
-      : $report->troop;
+    $room = $this->width() - self::columnsOf($verdict) - 4;
+    $troop = self::cutToColumns($report->troop, max(1, $room));
 
     $output->writeln(sprintf('  <options=bold>%s</>  <fg=%s>%s</>', $troop, $colour, $verdict));
     // Raw counts beside the shares: a percentage of five runs and a
