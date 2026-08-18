@@ -33,10 +33,17 @@ function removeScaffoldedProject(string $directory): void
     rmdir($directory);
 }
 
+/**
+ * A failed expectation. Thrown rather than exited on, so the scaffolded
+ * project is removed by the finally below whether the run passes or fails.
+ */
+final class TestFailure extends Exception
+{
+}
+
 function failScaffolderTest(string $message): never
 {
-    fwrite(STDERR, "FAIL: {$message}\n");
-    exit(1);
+    throw new TestFailure($message);
 }
 
 try {
@@ -88,8 +95,15 @@ try {
     if (! str_contains($inputSource, "'skit' =>") || ! str_contains($inputSource, '[KeyCode::T, KeyCode::t]')) {
         failScaffolderTest('New projects do not expose the supported skit action.');
     }
+} catch (TestFailure $failure) {
+    $testFailure = $failure->getMessage();
 } finally {
     removeScaffoldedProject($projectRoot);
+}
+
+if (isset($testFailure)) {
+    fwrite(STDERR, "FAIL: {$testFailure}\n");
+    exit(1);
 }
 
 fwrite(STDOUT, "PASS: new projects include stable identity and save compatibility metadata.\n");

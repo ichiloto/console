@@ -34,7 +34,13 @@ final class BattleCommandWidthProbe
 
 $consoleRoot = dirname(__DIR__);
 $workspaceRoot = dirname($consoleRoot);
-$projectRoot = realpath($workspaceRoot . '/examples/last-legend');
+// The sibling checkout by default; ICHILOTO_GAME_SRC pins a read-only export
+// of one accepted game head instead, so the suite reads that head while the
+// checkout itself may be on someone else's branch. Nothing here writes to it.
+$pinnedGame = getenv('ICHILOTO_GAME_SRC');
+$projectRoot = is_string($pinnedGame) && $pinnedGame !== '' && is_dir($pinnedGame . '/assets')
+    ? realpath($pinnedGame)
+    : realpath($workspaceRoot . '/examples/last-legend');
 $consoleBin = $consoleRoot . '/bin/ichiloto';
 $temporaryRoot = sys_get_temp_dir() . '/ichiloto-battle-' . bin2hex(random_bytes(8));
 
@@ -77,7 +83,12 @@ function battleReport(string $consoleBin, string $workingDirectory, array $argum
 }
 
 /**
- * Copies a directory, keeping symlinks as symlinks.
+ * Copies a project into a disposable directory, bounded.
+ *
+ * Symlinks stay symlinks, and the audio -- which nothing here plays or writes,
+ * and which weighs more than the rest of the project together -- is reached
+ * through a link rather than copied, so the copy is the size of the authored
+ * data and not of the soundtrack.
  */
 function copyProject(string $source, string $destination): void
 {
@@ -98,6 +109,11 @@ function copyProject(string $source, string $destination): void
             // the project points nowhere once the project is somewhere else.
             $target = realpath($from);
             symlink($target === false ? (string) readlink($from) : $target, $to);
+            continue;
+        }
+
+        if ($entry === 'Audio' && is_dir($from) && basename($source) === 'assets') {
+            symlink($from, $to);
             continue;
         }
 
@@ -129,10 +145,202 @@ function removeProject(string $directory): void
     rmdir($directory);
 }
 
+/**
+ * A failed expectation. Thrown rather than exited on, so the fixture is
+ * removed by the finally below whether the run passes or fails -- exit()
+ * would skip it and leave the copy behind.
+ */
+final class TestFailure extends Exception
+{
+}
+
 function fail(string $message): never
 {
-    fwrite(STDERR, "FAIL: {$message}\n");
-    exit(1);
+    throw new TestFailure($message);
+}
+
+/**
+ * The command, failing while it describes a preview.
+ */
+final class FailingBattleCommand extends Ichiloto\Console\Commands\BattleCommand
+{
+    protected function describeHit(\Ichiloto\Engine\Battle\Resolution\CombatHitResult $hit): string
+    {
+        throw new RuntimeException('injected preview failure');
+    }
+}
+
+/**
+ * An output that fails once the aggregate report starts printing.
+ */
+final class FailingOutput extends Symfony\Component\Console\Output\BufferedOutput
+{
+    protected function doWrite(string $message, bool $newline): void
+    {
+        if (str_contains($message, 'runs:')) {
+            throw new RuntimeException('injected output failure');
+        }
+
+        parent::doWrite($message, $newline);
+    }
+}
+
+/**
+ * Records everything a set of objects hold, independently of the command's
+ * own snapshot: every stored property of every object reachable from the
+ * roots, with objects inside arrays and properties recorded by identity.
+ *
+ * @return array<int, array{class: string, props: array<string, mixed>}> The state, by object id.
+ */
+function deepState(object ...$roots): array
+{
+    $state = [];
+    $queue = $roots;
+
+    while ($queue !== []) {
+        $object = array_shift($queue);
+        $id = spl_object_id($object);
+
+        if (isset($state[$id]) || $object instanceof UnitEnum || $object instanceof Closure) {
+            continue;
+        }
+
+        $props = [];
+        $class = new ReflectionObject($object);
+
+        while ($class !== false) {
+            foreach ($class->getProperties() as $property) {
+                $key = $property->getDeclaringClass()->getName() . '::' . $property->getName();
+
+                if (isset($props[$key]) || $property->isStatic() || $property->isVirtual()) {
+                    continue;
+                }
+
+                if (! $property->isInitialized($object)) {
+                    $props[$key] = '<uninitialized>';
+
+                    continue;
+                }
+
+                $props[$key] = normalizeStateValue($property->getRawValue($object), $queue);
+            }
+
+            $class = $class->getParentClass();
+        }
+
+        $state[$id] = ['class' => $object::class, 'props' => $props];
+    }
+
+    return $state;
+}
+
+/**
+ * Renders a stored value for comparison: objects by identity, arrays in
+ * full, enums by case, scalars as they are.
+ *
+ * @param object[] $queue Objects met on the way, to be recorded too.
+ */
+function normalizeStateValue(mixed $value, array &$queue): mixed
+{
+    if ($value instanceof UnitEnum) {
+        return 'enum:' . $value::class . '::' . $value->name;
+    }
+
+    if ($value instanceof Closure) {
+        return 'closure';
+    }
+
+    if (is_object($value)) {
+        $queue[] = $value;
+
+        return '@' . spl_object_id($value);
+    }
+
+    if (is_array($value)) {
+        $normalized = [];
+
+        foreach ($value as $key => $item) {
+            $normalized[$key] = normalizeStateValue($item, $queue);
+        }
+
+        return $normalized;
+    }
+
+    return $value;
+}
+
+/**
+ * Lists every property that differs between two recordings.
+ *
+ * @return string[] The changes, described.
+ */
+function stateChanges(array $before, array $after): array
+{
+    $changes = [];
+
+    foreach ($after as $id => $entry) {
+        foreach ($entry['props'] as $property => $value) {
+            $was = array_key_exists($property, $before[$id]['props'] ?? [])
+                ? $before[$id]['props'][$property]
+                : '<absent>';
+
+            if ($was !== $value) {
+                $changes[] = sprintf('%s#%d %s: %s -> %s', $entry['class'], $id, $property, json_encode($was), json_encode($value));
+            }
+        }
+    }
+
+    foreach ($before as $id => $entry) {
+        if (! isset($after[$id])) {
+            $changes[] = sprintf('%s#%d is no longer reachable', $entry['class'], $id);
+        }
+    }
+
+    return $changes;
+}
+
+/**
+ * The battle checklist, read off the participants by name: what a review
+ * of the report asked to see compared, item by item.
+ *
+ * @return array<string, mixed> The checklist.
+ */
+function battleChecklist(\Ichiloto\Engine\Entities\Party $party, \Ichiloto\Engine\Entities\Troop $troop): array
+{
+    $describe = static function (object $battler): array {
+        $states = [];
+
+        foreach ($battler->states as $instance) {
+            $states[] = [$instance->state->id, $instance->remainingTurns];
+        }
+
+        $slots = [];
+
+        foreach ($battler->equipment ?? [] as $slot) {
+            $slots[] = [$slot->semanticSlot->value, $slot->equipment?->id, spl_object_id($slot)];
+        }
+
+        return [
+            'identity' => spl_object_id($battler),
+            'name' => $battler->name,
+            'role' => isset($battler->role) ? $battler->role->name : null,
+            'hp' => $battler->stats->currentHp,
+            'mp' => $battler->stats->currentMp,
+            'ap' => $battler->stats->currentAp,
+            'states' => $states,
+            'statStages' => $battler->statStages,
+            'guarding' => $battler->isGuarding,
+            'lastHitWasCritical' => $battler->lastHitWasCritical,
+            'lastElementReaction' => $battler->lastElementReaction,
+            'equipment' => $slots,
+            'permanentGrowth' => isset($battler->permanentGrowth) ? $battler->permanentGrowth->jsonSerialize() : null,
+        ];
+    };
+
+    return [
+        'party' => array_map($describe, $party->members->toArray()),
+        'troop' => array_map($describe, $troop->members->toArray()),
+    ];
 }
 
 /**
@@ -204,6 +412,21 @@ try {
         fail('Formatting tags were counted as visible columns.');
     }
 
+    if (BattleCommandWidthProbe::columns("e\u{0301}") !== 1) {
+        fail('A combining mark was measured as a column of its own.');
+    }
+
+    if (BattleCommandWidthProbe::columns('👨‍👩‍👧‍👦') !== 2) {
+        fail('A joined emoji was not measured as one two-column glyph.');
+    }
+
+    // The same ruler as the engine's own, glyph for glyph.
+    foreach (['日本語', '🗡️', "e\u{0301}", '👨‍👩‍👧‍👦', 'plain'] as $sample) {
+        if (BattleCommandWidthProbe::columns($sample) !== Ichiloto\Engine\IO\Console\TerminalText::displayWidth($sample)) {
+            fail(sprintf('The command measured "%s" differently from the engine.', $sample));
+        }
+    }
+
     if (BattleCommandWidthProbe::columns(BattleCommandWidthProbe::cut('日本語ですよ', 5)) > 5) {
         fail('Cutting to five columns produced something wider than five columns.');
     }
@@ -267,7 +490,9 @@ try {
 
     $troopsPath = $temporaryRoot . '/assets/Data/troops.php';
     $troops = (string) file_get_contents($troopsPath);
-    $wideName = '日本語の敵👨‍👩‍👧‍👦テスト';
+    // CJK, a joined emoji, a pictograph with a variation selector, and a
+    // combining mark, in the name that heads the troop verdict.
+    $wideName = "日本語の敵👨‍👩‍👧‍👦テスト🗡️e\u{0301}";
     $renamed = preg_replace("/'name' => 'Bat x 2'/", sprintf("'name' => '%s'", $wideName), $troops, 1);
 
     if ($renamed === null || $renamed === $troops) {
@@ -288,6 +513,8 @@ try {
             fail(sprintf('A troop named in CJK and emoji failed at %d columns: %s', $columns, $wide['output']));
         }
 
+        $sawHeader = false;
+
         foreach (explode("\n", $wide['output']) as $line) {
             $drawn = Ichiloto\Console\Commands\BattleCommand::columnsOf($line);
 
@@ -299,12 +526,27 @@ try {
                     $line,
                 ));
             }
+
+            // The troop-verdict header carries the wide name and is cut by
+            // the same ruler as every other line.
+            if (str_starts_with(trim($line), Ichiloto\Engine\IO\Console\TerminalText::truncateToWidth($wideName, 4))) {
+                $sawHeader = true;
+            }
+        }
+
+        if (! $sawHeader) {
+            fail(sprintf('The troop-verdict header did not appear at %d columns: %s', $columns, $wide['output']));
         }
     }
 
     file_put_contents($troopsPath, $troops);
 
-    // -- A preview leaves every battler exactly as it found it ------------
+    // -- The whole report leaves every participant exactly as it found it --
+    //
+    // Not only the preview helper: loading, simulating, the aggregate and
+    // the seeded previews together, compared before and after over every
+    // object a party or a troop reaches -- and, separately, over the very
+    // things a resolved attack writes.
 
     if (class_exists(\Ichiloto\Engine\Entities\Party::class)) {
         $previousDirectory = getcwd();
@@ -343,36 +585,138 @@ try {
         }
 
         $troop = \Ichiloto\Engine\Entities\Troop::fromArray((array) $troopData);
-        $battlers = [...$party->battlers->toArray(), ...$troop->members->toArray()];
+        $attacker = $party->battlers->toArray()[0];
+        $target = $troop->members->toArray()[0];
 
-        // Everything a resolved attack can write: health, states, stages,
-        // flags and whatever feedback properties a battler declares.
-        $before = Ichiloto\Console\Commands\BattleCommand::mutableStateOf($battlers);
-
-        $command = new Ichiloto\Console\Commands\BattleCommand();
-        $render = new ReflectionMethod($command, 'reportSampleHits');
-        $render->invoke(
-            $command,
-            new Symfony\Component\Console\Output\BufferedOutput(),
-            $party,
-            $troop,
-            new \Ichiloto\Engine\Battle\Simulation\BattleSimulator(),
+        // Force what the resolver writes beyond health: a fire blade whose
+        // critical modifier sits at the ceiling, swung at a bat weak to
+        // fire, so every hit is an elemental reaction and the seeded run
+        // criticals. Removing the outer boundary leaves both flags changed.
+        $blade = new \Ichiloto\Engine\Entities\Inventory\Weapons\Weapon(
+            id: 'equipment.probe-blade',
+            name: 'Probe Blade',
+            description: 'For the report to swing.',
+            icon: '/',
+            price: 1,
+            parameterChanges: new \Ichiloto\Engine\Entities\ParameterChanges(attack: 4),
+            element: 'Fire',
+            criticalModifier: 100,
         );
 
-        $after = Ichiloto\Console\Commands\BattleCommand::mutableStateOf($battlers);
-
-        if ($after !== $before) {
-            $changed = [];
-
-            foreach ($after as $id => $state) {
-                foreach ($state as $name => $value) {
-                    if (($before[$id][$name] ?? null) !== $value) {
-                        $changed[] = sprintf('%s: %s -> %s', $name, var_export($before[$id][$name] ?? null, true), var_export($value, true));
-                    }
-                }
+        foreach ($attacker->equipment as $slot) {
+            if ($slot->semanticSlot === \Ichiloto\Engine\Entities\Inventory\EquipmentSlotType::WEAPON) {
+                $slot->equipment = $blade;
             }
+        }
 
-            fail('Reporting changed the party or troop: ' . implode(', ', $changed));
+        $target->setElementAffinities(['Fire' => 2.0]);
+        // A state with turns left, a stat stage, and a guard, so that the
+        // comparison covers what a battle can tick, buff and drop.
+        $target->addStatStage('attack', 1);
+        $target->beginGuarding();
+
+        $participants = [$party, $troop];
+        $checklistBefore = battleChecklist($party, $troop);
+        $before = deepState(...$participants);
+        // The command's own recording of the loaded state, kept aside to
+        // prove it can put a mutated world back to exactly this.
+        $loaded = \Ichiloto\Console\Battle\ParticipantSnapshot::capture(...$participants);
+
+        $command = new Ichiloto\Console\Commands\BattleCommand();
+        $render = new ReflectionMethod($command, 'renderReport');
+        $buffer = new Symfony\Component\Console\Output\BufferedOutput();
+        $render->invoke($command, $buffer, $party, [$troop], new \Ichiloto\Engine\Battle\Simulation\BattleSimulator(), 5);
+        $rendered = $buffer->fetch();
+
+        // The forced reactions did happen inside the report: the previews
+        // read them off the typed hit result.
+        if (! str_contains($rendered, 'Fire weak')) {
+            fail('The forced elemental reaction did not appear in the report: ' . $rendered);
+        }
+
+        $changes = stateChanges($before, deepState(...$participants));
+
+        if ($changes !== []) {
+            fail('The whole report changed the party or troop: ' . implode('; ', $changes));
+        }
+
+        if (battleChecklist($party, $troop) !== $checklistBefore) {
+            fail('The report changed something on the battle checklist: ' . json_encode(battleChecklist($party, $troop)));
+        }
+
+        // The comparison has teeth: the same simulation without the boundary
+        // leaves the critical and elemental feedback, and more, changed.
+        new \Ichiloto\Engine\Battle\Simulation\BattleSimulator()->simulate($party, $troop, 5);
+        $naked = stateChanges($before, deepState(...$participants));
+        $flags = array_filter(
+            $naked,
+            static fn(string $change): bool => str_contains($change, 'lastHitWasCritical') || str_contains($change, 'lastElementReaction'),
+        );
+
+        if ($flags === []) {
+            fail('Simulating without the boundary left no feedback flag changed, so the comparison could not fail: ' . implode('; ', $naked));
+        }
+
+        // The recording taken at load puts that mutated world back exactly.
+        $loaded->restore();
+
+        if (stateChanges($before, deepState(...$participants)) !== []) {
+            fail('Restoring after a naked simulation did not return the participants to their loaded state.');
+        }
+
+        // A controlled failure in the middle of the report -- while a
+        // preview is being described -- still puts everything back.
+
+        $failing = new FailingBattleCommand();
+        $failed = false;
+
+        try {
+            new ReflectionMethod($failing, 'renderReport')->invoke(
+                $failing,
+                new Symfony\Component\Console\Output\BufferedOutput(),
+                $party,
+                [$troop],
+                new \Ichiloto\Engine\Battle\Simulation\BattleSimulator(),
+                5,
+            );
+        } catch (RuntimeException $exception) {
+            $failed = $exception->getMessage() === 'injected preview failure';
+        }
+
+        if (! $failed) {
+            fail('The injected preview failure did not surface.');
+        }
+
+        $afterFailure = stateChanges($before, deepState(...$participants));
+
+        if ($afterFailure !== [] || battleChecklist($party, $troop) !== $checklistBefore) {
+            fail('A report that failed part-way left the participants changed: ' . implode('; ', $afterFailure));
+        }
+
+        // And a failure in the output itself, after the simulation has run.
+        $failedOutput = false;
+
+        try {
+            new ReflectionMethod($command, 'renderReport')->invoke(
+                $command,
+                new FailingOutput(),
+                $party,
+                [$troop],
+                new \Ichiloto\Engine\Battle\Simulation\BattleSimulator(),
+                5,
+            );
+        } catch (RuntimeException $exception) {
+            $failedOutput = $exception->getMessage() === 'injected output failure';
+        }
+
+        if (! $failedOutput) {
+            fail('The injected output failure did not surface.');
+        }
+
+        $afterOutputFailure = stateChanges($before, deepState(...$participants));
+
+        if ($afterOutputFailure !== [] || battleChecklist($party, $troop) !== $checklistBefore) {
+            fail('A report whose output failed left the participants changed: ' . implode('; ', $afterOutputFailure));
         }
 
         chdir($previousDirectory ?: '.');
@@ -502,8 +846,15 @@ try {
             fail('What a worn item contributes was not resolved through the engine: ' . $rendered);
         }
     }
+} catch (TestFailure $failure) {
+    $testFailure = $failure->getMessage();
 } finally {
     removeProject($temporaryRoot);
+}
+
+if (isset($testFailure)) {
+    fwrite(STDERR, "FAIL: {$testFailure}\n");
+    exit(1);
 }
 
 /**
@@ -514,13 +865,16 @@ try {
 function projectHashes(string $root): array
 {
     $hashes = [];
+    // Links are followed, so the audio reached through one is hashed file
+    // by file like everything else, and the pin over the whole project keeps
+    // its full reach.
     $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS | FilesystemIterator::FOLLOW_SYMLINKS),
         RecursiveIteratorIterator::SELF_FIRST,
     );
 
     foreach ($files as $file) {
-        if ($file->isFile() && ! $file->isLink()) {
+        if ($file->isFile()) {
             $hashes[$file->getPathname()] = (string) md5_file($file->getPathname());
         }
     }

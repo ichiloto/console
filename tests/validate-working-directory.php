@@ -11,12 +11,34 @@ declare(strict_types=1);
 
 $consoleRoot = dirname(__DIR__);
 $workspaceRoot = dirname($consoleRoot);
-$projectRoot = realpath($workspaceRoot . '/examples/last-legend');
+// The sibling checkout by default; ICHILOTO_GAME_SRC pins a read-only export
+// of one accepted game head instead. Nothing here writes to either.
+$pinnedGame = getenv('ICHILOTO_GAME_SRC');
+$projectRoot = is_string($pinnedGame) && $pinnedGame !== '' && is_dir($pinnedGame . '/assets')
+    ? realpath($pinnedGame)
+    : realpath($workspaceRoot . '/examples/last-legend');
 $consoleBin = $consoleRoot . '/bin/ichiloto';
 $temporaryRoot = sys_get_temp_dir() . '/ichiloto-validation-' . bin2hex(random_bytes(8));
 
 if (! is_string($projectRoot)) {
     fail('The sibling Last Legend worktree was not found.');
+}
+
+/**
+ * Returns the path to one directory relative to another, so the "relative
+ * target" case reaches the project wherever it is pinned.
+ */
+function relativePath(string $from, string $to): string
+{
+    $fromParts = explode('/', trim($from, '/'));
+    $toParts = explode('/', trim($to, '/'));
+
+    while ($fromParts !== [] && $toParts !== [] && $fromParts[0] === $toParts[0]) {
+        array_shift($fromParts);
+        array_shift($toParts);
+    }
+
+    return implode('/', [...array_fill(0, count($fromParts), '..'), ...$toParts]) ?: '.';
 }
 
 /**
@@ -79,7 +101,15 @@ function copyDirectory(string $source, string $destination): void
         $sourcePath = $source . '/' . $entry;
         $destinationPath = $destination . '/' . $entry;
 
-        if (is_dir($sourcePath)) {
+        if ($entry === 'Audio' && basename($source) === 'assets' && is_dir($sourcePath)) {
+            // Nothing here plays or writes the audio, and it weighs more than
+            // the rest of the project together: reached through a link, so
+            // the copy is the size of the authored data.
+            symlink($sourcePath, $destinationPath);
+            continue;
+        }
+
+        if (is_dir($sourcePath) && ! is_link($sourcePath)) {
             copyDirectory($sourcePath, $destinationPath);
             continue;
         }
@@ -103,7 +133,11 @@ function removeDirectory(string $directory): void
 
         $path = $directory . '/' . $entry;
 
-        if (is_dir($path)) {
+        if (is_link($path)) {
+            // A link is removed as a link: what it points at -- the game's
+            // audio -- is not the fixture's to remove.
+            unlink($path);
+        } elseif (is_dir($path)) {
             removeDirectory($path);
         } else {
             unlink($path);
@@ -113,26 +147,43 @@ function removeDirectory(string $directory): void
     rmdir($directory);
 }
 
+/**
+ * A failed expectation. Thrown rather than exited on, so the fixture is
+ * removed by the finally below whether the run passes or fails.
+ */
+final class TestFailure extends Exception
+{
+}
+
 function fail(string $message): never
 {
-    fwrite(STDERR, "FAIL: {$message}\n");
+    throw new TestFailure($message);
+}
+
+try {
+    $baseline = validationReport($consoleBin, $projectRoot, '.');
+
+    if ($baseline['exitCode'] !== 0 || ! str_contains($baseline['output'], 'Last Legend looks good.')) {
+        fail('The Last Legend project-root validation baseline did not pass: ' . $baseline['output']);
+    }
+} catch (TestFailure $failure) {
+    fwrite(STDERR, "FAIL: {$failure->getMessage()}\n");
     exit(1);
 }
 
-$baseline = validationReport($consoleBin, $projectRoot, '.');
-
-if ($baseline['exitCode'] !== 0 || ! str_contains($baseline['output'], 'Last Legend looks good.')) {
-    fail('The Last Legend project-root validation baseline did not pass: ' . $baseline['output']);
-}
-
 $reports = [
-    'Console cwd with relative target' => validationReport($consoleBin, $consoleRoot, '../examples/last-legend'),
+    'Console cwd with relative target' => validationReport($consoleBin, $consoleRoot, relativePath($consoleRoot, $projectRoot)),
     'Console cwd with absolute target' => validationReport($consoleBin, $consoleRoot, $projectRoot),
     'Unrelated cwd with absolute target' => validationReport($consoleBin, sys_get_temp_dir(), $projectRoot),
 ];
 
-foreach ($reports as $context => $report) {
-    assertSameReport($baseline, $report, $context);
+try {
+    foreach ($reports as $context => $report) {
+        assertSameReport($baseline, $report, $context);
+    }
+} catch (TestFailure $failure) {
+    fwrite(STDERR, "FAIL: {$failure->getMessage()}\n");
+    exit(1);
 }
 
 try {
@@ -156,8 +207,15 @@ try {
     if ($negative['exitCode'] === 0 || ! str_contains($negative['output'], $missingEnemy)) {
         fail('A genuine missing enemy reference was not reported: ' . $negative['output']);
     }
+} catch (TestFailure $failure) {
+    $testFailure = $failure->getMessage();
 } finally {
     removeDirectory($temporaryRoot);
+}
+
+if (isset($testFailure)) {
+    fwrite(STDERR, "FAIL: {$testFailure}\n");
+    exit(1);
 }
 
 fwrite(STDOUT, "PASS: validation is cwd-independent and genuine missing references still fail.\n");

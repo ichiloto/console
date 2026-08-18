@@ -75,10 +75,17 @@ function removeUpgradeFixture(string $directory): void
     rmdir($directory);
 }
 
+/**
+ * A failed expectation. Thrown rather than exited on, so the fixture is
+ * removed by the finally below whether the run passes or fails.
+ */
+final class TestFailure extends Exception
+{
+}
+
 function failUpgradeTest(string $message): never
 {
-    fwrite(STDERR, "FAIL: {$message}\n");
-    exit(1);
+    throw new TestFailure($message);
 }
 
 try {
@@ -166,8 +173,15 @@ try {
         || file_exists($invalidRoot . '/assets/Data/save-compatibility.php')) {
         failUpgradeTest('An invalid requested identity did not fail closed before writing.');
     }
+} catch (TestFailure $failure) {
+    $testFailure = $failure->getMessage();
 } finally {
     removeUpgradeFixture($temporaryRoot);
+}
+
+if (isset($testFailure)) {
+    fwrite(STDERR, "FAIL: {$testFailure}\n");
+    exit(1);
 }
 
 fwrite(STDOUT, "PASS: legacy projects gain stable, idempotent save metadata without overwriting existing contracts.\n");
