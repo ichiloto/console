@@ -3,25 +3,20 @@
 declare(strict_types=1);
 
 /**
- * Cross-repository integration check for the production validation command.
- *
- * This intentionally exercises the real Last Legend project in the sibling
- * workspace. The negative case works on a disposable project copy.
+ * Integration check for the production validation command.
  */
 
 $consoleRoot = dirname(__DIR__);
-$workspaceRoot = dirname($consoleRoot);
-// The sibling checkout by default; ICHILOTO_GAME_SRC pins a read-only export
-// of one accepted game head instead. Nothing here writes to either.
 $pinnedGame = getenv('ICHILOTO_GAME_SRC');
 $projectRoot = is_string($pinnedGame) && $pinnedGame !== '' && is_dir($pinnedGame . '/assets')
     ? realpath($pinnedGame)
-    : realpath($workspaceRoot . '/examples/last-legend');
+    : false;
 $consoleBin = $consoleRoot . '/bin/ichiloto';
 $temporaryRoot = sys_get_temp_dir() . '/ichiloto-validation-' . bin2hex(random_bytes(8));
 
 if (! is_string($projectRoot)) {
-    fail('The sibling Last Legend worktree was not found.');
+    fwrite(STDOUT, "SKIP: set ICHILOTO_GAME_SRC to run project validation integration checks.\n");
+    exit(0);
 }
 
 /**

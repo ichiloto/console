@@ -290,7 +290,7 @@ final class NewProjectScaffolder
             'type' => 'project',
             'require' => [
                 'php' => '^8.4',
-                'ichiloto/engine' => '^0.3.0',
+                'ichiloto/engine' => '^0.5',
             ],
             'scripts' => [
                 'play' => sprintf('php %s', $mainFilename),

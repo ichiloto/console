@@ -20,7 +20,7 @@ This package powers the `ichiloto` executable: it forges new projects, opens the
 - [Laravel Prompts](https://laravel.com/docs/prompts)
 - League CLImate
 - `amasiye/figlet` for title art and terminal wordmarks
-- `ichiloto/editor` as a local Composer dependency during source development
+- `ichiloto/editor` for the project editor and validation commands
 
 ## Commands
 
@@ -174,27 +174,13 @@ Key source areas:
 
 ## Local Development
 
-If you are working from source, the current setup expects sibling checkouts:
-
-```text
-ichiloto/
-  engine/
-  editor/
-  console/
-```
-
-Install dependencies from the `console` repo:
+Install the Console dependencies:
 
 ```bash
 composer install
 ```
 
-Notes for source development:
-
-- `composer.json` currently resolves `ichiloto/editor` through a local path repository at `../editor`
-- the `edit` command also benefits from a sibling `../engine` checkout so editor previews can resolve engine classes cleanly
-- FIGlet-backed commands are powered directly by the `amasiye/figlet` package that is now part of this repo's Composer dependencies
-- running `./bin/ichiloto list` is the fastest smoke test after dependency changes
+Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
 
 ## Project Links
 

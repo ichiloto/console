@@ -44,7 +44,6 @@ final class EditCommand extends Command
         }
 
         try {
-            $this->bootstrapEditorDependencies();
             $this->bootstrapEngineDependencies($workingDirectory);
             $this->bootstrapProjectDependencies($workingDirectory);
             (new Editor($workingDirectory))->run();
@@ -187,24 +186,6 @@ final class EditCommand extends Command
         }
 
         return (bool) ($debug['enabled'] ?? false) && (bool) ($debug['show'] ?? false);
-    }
-
-    /**
-     * Loads the editor package vendor tree when the console package was not installed with it.
-     *
-     * @return void
-     */
-    private function bootstrapEditorDependencies(): void
-    {
-        if (class_exists(\Atatusoft\Termutil\IO\Console\Console::class)) {
-            return;
-        }
-
-        $autoloadPath = dirname(__DIR__, 3) . '/editor/vendor/autoload.php';
-
-        if (is_file($autoloadPath)) {
-            require_once $autoloadPath;
-        }
     }
 
     /**

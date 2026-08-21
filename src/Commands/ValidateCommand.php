@@ -131,12 +131,6 @@ class ValidateCommand extends Command
    */
   protected function bootstrapDependencies(string $workingDirectory): void
   {
-    $editorAutoloadPath = dirname(__DIR__, 3) . '/editor/vendor/autoload.php';
-
-    if (! class_exists(ProjectWorkspace::class) && is_file($editorAutoloadPath)) {
-      require_once $editorAutoloadPath;
-    }
-
     load_engine_autoloader($workingDirectory);
   }
 }

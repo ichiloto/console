@@ -75,6 +75,10 @@ try {
         failScaffolderTest('The generated Composer package and project save identities differ.');
     }
 
+    if (($composer['require']['ichiloto/engine'] ?? null) !== '^0.5') {
+        failScaffolderTest('The generated project does not target Ichiloto Engine 0.5.');
+    }
+
     if ($manifest !== [
         'contentVersion' => 0,
         'migrations' => [],
