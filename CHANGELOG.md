@@ -22,5 +22,5 @@ toolkit together behind the `ichiloto` command.
 
 ### Requirements
 
-- PHP 8.4 or newer within the PHP 8 release line.
+- PHP 8.4.1 or newer within the PHP 8 release line.
 - `ichiloto/editor` 0.5 and its compatible Engine 0.5 runtime.
