@@ -1,0 +1,16 @@
+# Static analysis for the CLI.
+#
+# Needs phpstan 2.x. The 1.x line cannot parse `new Thing()->method()`, which
+# is PHP 8.4 syntax this codebase uses; run `composer update` if the analyser
+# reports syntax errors.
+parameters:
+    # Level 3 is free here. The engine sits at 0 for now: its next levels are
+    # mostly serialization patterns the analyser cannot see through.
+    level: 3
+    paths:
+        - src
+    # BattleCommand calls the Engine's global asset() helper. Composer loads
+    # this file at runtime; scan it explicitly for static analysis as well.
+    scanFiles:
+        - vendor/ichiloto/engine/src/Util/Helpers.php
+    reportUnmatchedIgnoredErrors: false

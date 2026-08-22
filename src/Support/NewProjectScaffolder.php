@@ -29,16 +29,17 @@ final class NewProjectScaffolder
         $files = [];
 
         $mainFilename = $blueprint['directoryName'] . '.php';
+        $projectId = 'ichiloto/' . $blueprint['directoryName'];
         $heroPath = Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'Actors', $blueprint['heroId'] . '.php');
         $mapDirectory = Path::join($blueprint['targetDirectory'], 'assets', 'Maps', self::STARTING_MAP_ID);
 
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'ichiloto.json'),
-            $this->renderIchilotoConfig($blueprint['displayName'], $mainFilename),
+            $this->renderIchilotoConfig($projectId, $blueprint['displayName'], $mainFilename),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'composer.json'),
-            $this->renderComposerJson($mainFilename),
+            $this->renderComposerJson($projectId, $mainFilename),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'config.php'),
@@ -83,6 +84,10 @@ final class NewProjectScaffolder
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'skills.php'),
             $this->renderPhpArrayFile([]),
+        );
+        $files[] = $this->writeFile(
+            Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'save-compatibility.php'),
+            SaveCompatibilityMetadata::renderBaseline(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'system.php'),
@@ -218,20 +223,7 @@ final class NewProjectScaffolder
             '#                                              #',
             '################################################',
         ];
-        $eventRows = array_fill(0, count($tileRows), str_repeat(' ', strlen($tileRows[0])));
-
-        $this->writeFile(
-            Path::join($mapDirectory, self::STARTING_MAP_ID . '.data.php'),
-            $this->renderPhpArrayFile($mapData),
-        );
-        $this->writeFile(
-            Path::join($mapDirectory, self::STARTING_MAP_ID . '.map.php'),
-            $this->renderMapLayer('ICHILOTO_MAP', $tileRows),
-        );
-        $this->writeFile(
-            Path::join($mapDirectory, self::STARTING_MAP_ID . '.event.php'),
-            $this->renderMapLayer('ICHILOTO_EVENT_MAP', $eventRows),
-        );
+        new MapScaffolder()->write($mapDirectory, $mapData, $tileRows);
     }
 
     private function writeFile(string $path, string $contents): string
@@ -251,9 +243,10 @@ final class NewProjectScaffolder
         return $path;
     }
 
-    private function renderIchilotoConfig(string $displayName, string $mainFilename): string
+    private function renderIchilotoConfig(string $projectId, string $displayName, string $mainFilename): string
     {
         return json_encode([
+            'id' => $projectId,
             'name' => $displayName,
             'description' => 'A terminal-born RPG forged with the Ichiloto Engine.',
             'version' => '0.1.0',
@@ -276,14 +269,15 @@ final class NewProjectScaffolder
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
     }
 
-    private function renderComposerJson(string $mainFilename): string
+    private function renderComposerJson(string $projectId, string $mainFilename): string
     {
         return json_encode([
+            'name' => $projectId,
             'description' => 'A terminal-native RPG created with the Ichiloto Engine.',
             'type' => 'project',
             'require' => [
                 'php' => '^8.4',
-                'ichiloto/engine' => '^0.3.0',
+                'ichiloto/engine' => '^0.5',
             ],
             'scripts' => [
                 'play' => sprintf('php %s', $mainFilename),
@@ -460,9 +454,9 @@ return [
     'description' => 'Open the map.',
     'keys' => [KeyCode::M, KeyCode::m],
   ],
-  'notify' => [
-    'description' => 'Create a notification.',
-    'keys' => [KeyCode::N, KeyCode::n],
+  'skit' => [
+    'description' => 'Play an available skit.',
+    'keys' => [KeyCode::T, KeyCode::t],
   ],
   'pause' => [
     'description' => 'Pause the game.',
@@ -671,19 +665,6 @@ PHP;
     private function renderPhpArrayFile(array $payload): string
     {
         return "<?php\n\nreturn " . $this->exportPhpValue($payload) . ";\n";
-    }
-
-    /**
-     * @param string[] $rows
-     */
-    private function renderMapLayer(string $heredocLabel, array $rows): string
-    {
-        return sprintf(
-            "<?php\n\nreturn <<<'%s'\n%s\n%s;\n",
-            $heredocLabel,
-            implode(PHP_EOL, $rows),
-            $heredocLabel,
-        );
     }
 
     private function exportPhpValue(mixed $value, int $indentLevel = 0): string

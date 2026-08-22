@@ -15,12 +15,12 @@ This package powers the `ichiloto` executable: it forges new projects, opens the
 
 ## Stack
 
-- PHP `^8.4`
+- PHP `^8.4.1`
 - Symfony Console
 - [Laravel Prompts](https://laravel.com/docs/prompts)
 - League CLImate
 - `amasiye/figlet` for title art and terminal wordmarks
-- `ichiloto/editor` as a local Composer dependency during source development
+- `ichiloto/editor` for the project editor and validation commands
 
 ## Commands
 
@@ -29,10 +29,12 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
+- `ichiloto upgrade` for adding mandatory save metadata to projects created by older Console versions
+- `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
-- `ichiloto generate:map` for lightweight map scaffolding
+- `ichiloto generate:map` for complete Engine 0.5 map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
-- `ichiloto battle` as an early development command placeholder
+- `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 
 ## Getting Started
 
@@ -86,6 +88,60 @@ ichiloto new my-rpg --directory /path/to/projects/my-rpg
 
 Every new project also gets a generated `assets/Graphics/System/title.txt`, so the title scene starts with a real banner instead of a blank placeholder.
 
+### Balancing a fight
+
+`ichiloto battle` opens the arena so you can play a troop. Give it a run
+count instead and it simulates the fight repeatedly and reports what the
+fight *is*:
+
+```bash
+ichiloto battle --troop "Bat x 2" --runs 100
+```
+
+The report opens with the party as fought — each member's level, what each
+slot holds by display name and stable id, the permanent growth it carries
+with the provenance of each entry, and every canonical stat with its layers,
+its cap, and the room left under that cap or what the cap threw away. Then,
+per troop: raw wins, losses and unfinished runs beside their shares, average
+turns, party health left on a win, and per battler damage, healing, HP lost,
+mitigation and how often they fell. The seed is printed because it is what
+makes a run repeatable.
+
+Everything the report prints is the engine's own projection. Nothing is
+recalculated here, and where the engine does not aggregate something across a
+run — miss, critical, Guard and elemental-outcome rates — the report says so
+and names what would supply it, rather than inferring a number. One seeded
+attack per battler is shown from the simulator's preview seam, labelled as
+the single resolved action it is.
+
+The report is a reading of the project, not a rehearsal on it. Everything a
+party or a troop holds is recorded before anything runs and put back before
+each troop is simulated, before each attacker previews — so every attacker
+swings at the same target from the same state — and once more when the
+report ends, whether it ends in the last line or in an error. Nothing is
+written to the project.
+
+Every line is cut to the terminal it is printed to, measured in the columns
+a glyph actually occupies rather than in characters, so a name written in
+CJK or carrying an emoji cannot push a line off the side. The report stays
+readable at forty columns.
+
+### Upgrading an existing project
+
+Projects created before versioned saves were introduced need a permanent
+project id and `assets/Data/save-compatibility.php`. From the project root, run:
+
+```bash
+ichiloto upgrade
+ichiloto validate
+```
+
+The upgrader preserves metadata that already exists. When the id is missing it
+uses a canonical Composer package name when available, otherwise it derives
+`ichiloto/<project-name>`. Preview the result with `--dry-run`, or choose the
+identity explicitly with `--id=vendor/project`. Never change that id after save
+files exist.
+
 ## FIGlet Generation
 
 Use `ichiloto generate:figlet` whenever you want to reforge title art or create new terminal banners by hand:
@@ -118,27 +174,13 @@ Key source areas:
 
 ## Local Development
 
-If you are working from source, the current setup expects sibling checkouts:
-
-```text
-ichiloto/
-  engine/
-  editor/
-  console/
-```
-
-Install dependencies from the `console` repo:
+Install the Console dependencies:
 
 ```bash
 composer install
 ```
 
-Notes for source development:
-
-- `composer.json` currently resolves `ichiloto/editor` through a local path repository at `../editor`
-- the `edit` command also benefits from a sibling `../engine` checkout so editor previews can resolve engine classes cleanly
-- FIGlet-backed commands are powered directly by the `amasiye/figlet` package that is now part of this repo's Composer dependencies
-- running `./bin/ichiloto list` is the fastest smoke test after dependency changes
+Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
 
 ## Project Links
 
