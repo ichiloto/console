@@ -15,7 +15,7 @@ This package powers the `ichiloto` executable: it forges new projects, opens the
 
 ## Stack
 
-- PHP `^8.4`
+- PHP `^8.4.1`
 - Symfony Console
 - [Laravel Prompts](https://laravel.com/docs/prompts)
 - League CLImate
@@ -32,7 +32,7 @@ The CLI currently ships these commands:
 - `ichiloto upgrade` for adding mandatory save metadata to projects created by older Console versions
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
-- `ichiloto generate:map` for lightweight map scaffolding
+- `ichiloto generate:map` for complete Engine 0.5 map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 

@@ -223,20 +223,7 @@ final class NewProjectScaffolder
             '#                                              #',
             '################################################',
         ];
-        $eventRows = array_fill(0, count($tileRows), str_repeat(' ', strlen($tileRows[0])));
-
-        $this->writeFile(
-            Path::join($mapDirectory, self::STARTING_MAP_ID . '.data.php'),
-            $this->renderPhpArrayFile($mapData),
-        );
-        $this->writeFile(
-            Path::join($mapDirectory, self::STARTING_MAP_ID . '.map.php'),
-            $this->renderMapLayer('ICHILOTO_MAP', $tileRows),
-        );
-        $this->writeFile(
-            Path::join($mapDirectory, self::STARTING_MAP_ID . '.event.php'),
-            $this->renderMapLayer('ICHILOTO_EVENT_MAP', $eventRows),
-        );
+        new MapScaffolder()->write($mapDirectory, $mapData, $tileRows);
     }
 
     private function writeFile(string $path, string $contents): string
@@ -678,19 +665,6 @@ PHP;
     private function renderPhpArrayFile(array $payload): string
     {
         return "<?php\n\nreturn " . $this->exportPhpValue($payload) . ";\n";
-    }
-
-    /**
-     * @param string[] $rows
-     */
-    private function renderMapLayer(string $heredocLabel, array $rows): string
-    {
-        return sprintf(
-            "<?php\n\nreturn <<<'%s'\n%s\n%s;\n",
-            $heredocLabel,
-            implode(PHP_EOL, $rows),
-            $heredocLabel,
-        );
     }
 
     private function exportPhpValue(mixed $value, int $indentLevel = 0): string

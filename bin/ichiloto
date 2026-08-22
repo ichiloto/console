@@ -22,8 +22,9 @@ use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Commands\UpgradeCommand;
 use Ichiloto\Console\Commands\ValidateCommand;
 use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Command\Command;
 
-function bootstrap(): void
+function bootstrap(): int
 {
   try {
     $app = new Application();
@@ -40,10 +41,14 @@ function bootstrap(): void
       new UpgradeCommand(),
       new ValidateCommand()
     ]);
-    $app->run();
-  } catch (Exception $exception) {
-    echo $exception->getMessage() . PHP_EOL;
+    $app->setAutoExit(false);
+
+    return $app->run();
+  } catch (\Throwable $exception) {
+    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
+
+    return Command::FAILURE;
   }
 }
 
-bootstrap();
+exit(bootstrap());
