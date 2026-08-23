@@ -182,6 +182,60 @@ composer install
 
 Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
 
+### Sibling checkouts cascade automatically
+
+The published dependencies resolve remotely — `composer.json` declares no
+repositories, and `tests/portable-composer-dependencies.php` fails the build
+if a local path ever reaches the committed manifest or lock. Working on
+local changes needs no configuration at all, because the development
+autoload cascades: `autoload-dev` maps `Ichiloto\Editor\`,
+`Ichiloto\Engine\`, and `Amasiye\Figlet\` onto the sibling checkouts
+(`../editor/src`, `../engine/src`, `../figlet/src/Figlet`), and Composer
+consults the root package's paths before a dependency's paths for the same
+namespace. A sibling that exists wins; a sibling that does not exist falls
+through to the vendored release. A public clone without siblings behaves
+exactly like a release install, and `tests/local-sibling-autoload.php`
+asserts whichever branch the environment is in.
+
+Two edges the cascade does not cover, because only classes can shadow:
+
+- helper **files** (`Helpers.php`, `Constants.php`) always load from the
+  vendored release — a dev sibling's new or changed helper functions are
+  not picked up;
+- a dev sibling's **new third-party dependency** is not installed here.
+
+To run the released combination while siblings are present, regenerate the
+autoloader without the dev cascade: `composer dump-autoload --no-dev`
+(plain `composer dump-autoload` restores it).
+
+### Full symlink installs, when the cascade is not enough
+
+For deep dependency work that hits the edges above, use a Composer path
+repository in an **uncommitted overlay manifest** so it can never ship.
+Copy `composer.json` to `composer.dev.json` (gitignored, as is its lock),
+add the local packages, and run Composer against the overlay:
+
+```json
+{
+    "repositories": [
+        { "type": "path", "url": "../editor", "options": { "symlink": true } }
+    ],
+    "require": {
+        "ichiloto/editor": "dev-develop"
+    }
+}
+```
+
+```bash
+COMPOSER=composer.dev.json composer update
+```
+
+This reinstalls `vendor/` with the symlinked package; run a plain
+`composer install` to return to the released dependencies. A path
+repository resolves at update time and fails when the directory is absent,
+which is why it lives only in the ignored overlay — the committed manifest
+stays installable everywhere.
+
 ## Project Links
 
 - Engine repository: [github.com/ichiloto/engine](https://github.com/ichiloto/engine)

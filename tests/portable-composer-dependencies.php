@@ -35,4 +35,37 @@ foreach (['amasiye/figlet', 'ichiloto/editor', 'ichiloto/engine'] as $packageNam
     }
 }
 
+// The published autoload surface must live inside this repository: a
+// production path that escapes it would assume somebody's machine.
+foreach ($manifest['autoload'] ?? [] as $section => $entries) {
+    foreach ((array) $entries as $paths) {
+        foreach ((array) $paths as $path) {
+            if (str_starts_with($path, '/') || str_starts_with($path, '../')) {
+                throw new RuntimeException(sprintf(
+                    'Published autoload %s path "%s" reaches outside the repository.',
+                    $section,
+                    $path,
+                ));
+            }
+        }
+    }
+}
+
+// Development autoload may cascade onto sibling checkouts — Composer falls
+// back to the vendored release when the directory is absent — but only
+// through relative paths: an absolute path assumes one machine.
+foreach ($manifest['autoload-dev'] ?? [] as $section => $entries) {
+    foreach ((array) $entries as $paths) {
+        foreach ((array) $paths as $path) {
+            if (str_starts_with($path, '/')) {
+                throw new RuntimeException(sprintf(
+                    'Development autoload %s path "%s" is absolute; use a relative sibling path.',
+                    $section,
+                    $path,
+                ));
+            }
+        }
+    }
+}
+
 fwrite(STDOUT, "Composer dependencies are portable.\n");
