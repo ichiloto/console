@@ -43,6 +43,7 @@
         "test": [
             "@php tests/portable-composer-dependencies.php",
             "@php tests/local-sibling-autoload.php",
+            "@php tests/renderer-selection.php",
             "@php tests/generate-map.php",
             "@php tests/new-project-save-compatibility.php",
             "@php tests/legacy-project-upgrade.php",

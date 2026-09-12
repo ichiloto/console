@@ -63,6 +63,52 @@ Play the project:
 ichiloto play
 ```
 
+## Renderer Selection
+
+In an interactive terminal, `ichiloto play` asks which renderer to use:
+
+```text
+Select renderer
+
+❯ Native Terminal
+  GPUI
+```
+
+The same choice can be made explicitly for scripts or repeatable launch
+commands:
+
+```bash
+ichiloto play --renderer=terminal
+ichiloto play --renderer=gpui
+```
+
+`--gpui-renderer` is a convenience alias for `--renderer=gpui`:
+
+```bash
+ichiloto play --gpui-renderer
+```
+
+Non-interactive launches default to the native terminal renderer unless a
+renderer is selected explicitly:
+
+```bash
+ichiloto play --no-interaction
+ichiloto play --no-interaction --renderer=gpui
+```
+
+Renderer implementation discovery is managed internally. The command-line
+interface selects the stable `terminal` or `gpui` identity; it does not accept
+an executable location.
+
+This Console change communicates renderer launch intent only. GPUI rendering
+also requires companion Engine support that consumes `ICHILOTO_RENDERER` and
+resolves the registered implementation; selecting `gpui` does not provide that
+runtime integration by itself.
+
+When `play` finds an existing project tmux session, it attaches to the game
+that is already running. A renderer option applies when a new game process is
+launched and cannot change the renderer of an existing session.
+
 ## Project Scaffolding
 
 `ichiloto new` creates a valid Ichiloto project structure, including:
