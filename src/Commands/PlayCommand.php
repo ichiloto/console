@@ -8,6 +8,7 @@ use Ichiloto\Console\AppConfig;
 use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
+use Ichiloto\Console\Support\GameProcessLauncher;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Console\Util\Path;
 use InvalidArgumentException;
@@ -31,16 +32,20 @@ class PlayCommand extends Command
 
   private readonly GameLaunchCommandBuilder $launchCommandBuilder;
 
+  private readonly GameProcessLauncher $gameProcessLauncher;
+
   public function __construct(
     ?RendererRegistry $rendererRegistry = null,
     ?RendererSelector $rendererSelector = null,
     ?TerminalInteractivity $terminalInteractivity = null,
     ?GameLaunchCommandBuilder $launchCommandBuilder = null,
+    ?GameProcessLauncher $gameProcessLauncher = null,
   ) {
     $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
     $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
     $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
     $this->launchCommandBuilder = $launchCommandBuilder ?? new GameLaunchCommandBuilder();
+    $this->gameProcessLauncher = $gameProcessLauncher ?? new GameProcessLauncher($this->launchCommandBuilder);
 
     parent::__construct();
   }
@@ -127,34 +132,20 @@ class PlayCommand extends Command
       return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id);
     }
 
-    $originalWorkingDirectory = getcwd();
+    $resultCode = $this->gameProcessLauncher->launch(
+      workingDirectory: $workingDirectory,
+      mainFile: $mainFile,
+      errorLogFile: $errorLogFile,
+      rendererId: $renderer->id,
+    );
 
-    if (! @chdir($workingDirectory)) {
-      $output->writeln('Could not switch to the project directory. ' . $workingDirectory);
-      return Command::FAILURE;
-    }
-
-    try {
-      $command = $this->launchCommandBuilder->buildGameCommand(
-        mainFile: $mainFile,
-        errorLogFile: $errorLogFile,
-        rendererId: $renderer->id,
+    if ($resultCode === null) {
+      $output->writeln("An error occurred while playing the game.");
+      $output->writeln(
+        "Please make sure the main file is executable and contains the game logic.",
+        OutputInterface::VERBOSITY_VERBOSE,
       );
-
-      $resultCode = Command::FAILURE;
-
-      if (false === passthru($command, $resultCode) ) {
-        $output->writeln("An error occurred while playing the game.");
-        $output->writeln([
-          "Please make sure the main file is executable and contains the game logic.",
-          "Result Code: $resultCode"
-        ], OutputInterface::VERBOSITY_VERBOSE);
-        return Command::FAILURE;
-      }
-    } finally {
-      if ($originalWorkingDirectory !== false) {
-        @chdir($originalWorkingDirectory);
-      }
+      return Command::FAILURE;
     }
 
     if ($resultCode !== 0) {

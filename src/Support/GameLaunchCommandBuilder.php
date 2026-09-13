@@ -8,15 +8,37 @@ final class GameLaunchCommandBuilder
 {
     public const RENDERER_ENVIRONMENT_VARIABLE = 'ICHILOTO_RENDERER';
 
+    /**
+     * @return list<string>
+     */
+    public function buildGameCommandArguments(string $mainFile, string $errorLogFile): array
+    {
+        return [
+            PHP_BINARY,
+            '-d',
+            'display_errors=0',
+            '-d',
+            'display_startup_errors=0',
+            '-d',
+            'log_errors=1',
+            '-d',
+            'error_log=' . $errorLogFile,
+            $mainFile,
+        ];
+    }
+
     public function buildGameCommand(string $mainFile, string $errorLogFile, string $rendererId): string
     {
+        $arguments = array_map(
+            static fn (string $argument): string => escapeshellarg($argument),
+            $this->buildGameCommandArguments($mainFile, $errorLogFile),
+        );
+
         return sprintf(
-            '%s=%s %s -d display_errors=0 -d display_startup_errors=0 -d log_errors=1 -d error_log=%s %s 2>> %s',
+            '%s=%s %s 2>> %s',
             self::RENDERER_ENVIRONMENT_VARIABLE,
             escapeshellarg($rendererId),
-            escapeshellcmd(PHP_BINARY),
-            escapeshellarg($errorLogFile),
-            escapeshellarg($mainFile),
+            implode(' ', $arguments),
             escapeshellarg($errorLogFile),
         );
     }
