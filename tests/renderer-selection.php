@@ -136,6 +136,160 @@ function removeRendererTestDirectory(string $directory): void
     rmdir($directory);
 }
 
+/**
+ * Runs the real CLI with observed output and samples it while the fixture
+ * game is deliberately still alive.
+ *
+ * @return array{exitCode: int, output: string, error: string, runningWhenReady: bool, visibleBeforeExit: bool}
+ */
+function runRendererPlayWithObservedOutput(
+    string $consoleBin,
+    string $projectDirectory,
+    bool $pseudoTerminal,
+): array
+{
+    $readyFile = $projectDirectory . '/pty-ready';
+    $releaseFile = $projectDirectory . '/pty-release';
+
+    foreach ([$readyFile, $releaseFile, $projectDirectory . '/pty-observation.json'] as $staleFile) {
+        if (is_file($staleFile)) {
+            unlink($staleFile);
+        }
+    }
+
+    $pipes = [];
+    $process = @proc_open(
+        [
+            PHP_BINARY,
+            $consoleBin,
+            'play',
+            '--directory=' . $projectDirectory,
+            '--renderer=terminal',
+            '--no-tmux',
+            '--no-interaction',
+        ],
+        [
+            0 => $pseudoTerminal ? ['pty'] : ['pipe', 'r'],
+            1 => $pseudoTerminal ? ['pty'] : ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ],
+        $pipes,
+        dirname($consoleBin, 2),
+    );
+
+    if (! is_resource($process)) {
+        failRendererSelectionTest('Could not start the observed direct-launch regression.');
+    }
+
+    fclose($pipes[0]);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $output = '';
+    $error = '';
+    $runningWhenReady = false;
+    $visibleBeforeExit = false;
+    $deadline = microtime(true) + 5;
+
+    try {
+        while (microtime(true) < $deadline) {
+            $output .= (string) @stream_get_contents($pipes[1]);
+            $error .= (string) stream_get_contents($pipes[2]);
+
+            if (is_file($readyFile)) {
+                $status = proc_get_status($process);
+                $runningWhenReady = (bool) ($status['running'] ?? false);
+                $visibilityDeadline = microtime(true) + 1;
+
+                while ($runningWhenReady && microtime(true) < $visibilityDeadline) {
+                    $output .= (string) @stream_get_contents($pipes[1]);
+
+                    if (str_contains($output, 'VISIBLE-BEFORE-EXIT')) {
+                        $visibleBeforeExit = true;
+                        break;
+                    }
+
+                    usleep(10_000);
+                }
+
+                break;
+            }
+
+            usleep(10_000);
+        }
+    } finally {
+        touch($releaseFile);
+    }
+
+    $finalStatus = null;
+    $shutdownDeadline = microtime(true) + 5;
+
+    while (microtime(true) < $shutdownDeadline) {
+        $output .= (string) @stream_get_contents($pipes[1]);
+        $error .= (string) stream_get_contents($pipes[2]);
+        $status = proc_get_status($process);
+
+        if (! (bool) ($status['running'] ?? false)) {
+            $finalStatus = $status;
+            break;
+        }
+
+        usleep(10_000);
+    }
+
+    if ($finalStatus === null) {
+        proc_terminate($process);
+        $terminationDeadline = microtime(true) + 1;
+
+        while (microtime(true) < $terminationDeadline) {
+            $output .= (string) @stream_get_contents($pipes[1]);
+            $error .= (string) stream_get_contents($pipes[2]);
+            $status = proc_get_status($process);
+
+            if (! (bool) ($status['running'] ?? false)) {
+                $finalStatus = $status;
+                break;
+            }
+
+            usleep(10_000);
+        }
+    }
+
+    if ($finalStatus === null) {
+        proc_terminate($process, 9);
+        $killDeadline = microtime(true) + 1;
+
+        while (microtime(true) < $killDeadline) {
+            $status = proc_get_status($process);
+
+            if (! (bool) ($status['running'] ?? false)) {
+                $finalStatus = $status;
+                break;
+            }
+
+            usleep(10_000);
+        }
+    }
+
+    if ($finalStatus === null) {
+        failRendererSelectionTest('The observed direct-launch fixture could not be stopped.');
+    }
+
+    $output .= (string) @stream_get_contents($pipes[1]);
+    $error .= (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $closeCode = proc_close($process);
+    $exitCode = $closeCode >= 0 ? $closeCode : (int) ($finalStatus['exitcode'] ?? -1);
+
+    return [
+        'exitCode' => $exitCode,
+        'output' => $output,
+        'error' => $error,
+        'runningWhenReady' => $runningWhenReady,
+        'visibleBeforeExit' => $visibleBeforeExit,
+    ];
+}
+
 $registry = new RendererRegistry();
 $ids = array_map(
     static fn (RendererDescriptor $renderer): string => $renderer->id,
@@ -285,6 +439,33 @@ if (is_file($projectDirectory . '/fail-launch')) {
 }
 PHP;
 file_put_contents($appDirectory . '/game.php', $fixtureGameSource);
+$ptyFixtureGameSource = <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+$projectDirectory = dirname(__DIR__);
+file_put_contents($projectDirectory . '/pty-observation.json', json_encode([
+    'renderer' => getenv('ICHILOTO_RENDERER') ?: null,
+    'cwd' => getcwd(),
+    'stdinIsTty' => function_exists('stream_isatty') && stream_isatty(STDIN),
+    'stdoutIsTty' => function_exists('stream_isatty') && stream_isatty(STDOUT),
+], JSON_THROW_ON_ERROR));
+fwrite(STDOUT, "VISIBLE-BEFORE-EXIT\n");
+fflush(STDOUT);
+touch($projectDirectory . '/pty-ready');
+$deadline = microtime(true) + 5;
+
+while (! is_file($projectDirectory . '/pty-release') && microtime(true) < $deadline) {
+    usleep(10_000);
+}
+
+if (! is_file($projectDirectory . '/pty-release')) {
+    fwrite(STDERR, "PTY fixture release timed out.\n");
+    exit(9);
+}
+PHP;
+file_put_contents($appDirectory . '/pty-game.php', $ptyFixtureGameSource);
 
 $spacedProjectConfig = json_encode([
     'main' => 'game files/game runner.php',
@@ -499,6 +680,56 @@ try {
         (string) file_get_contents($projectDirectory . '/ichiloto.json') === $projectConfig,
         'Renderer selection altered ichiloto.json.',
     );
+
+    $observedOutputProjectConfig = json_encode([
+        'main' => 'app/pty-game.php',
+        'debug' => ['enabled' => false, 'show' => false],
+    ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
+    file_put_contents($projectDirectory . '/ichiloto.json', $observedOutputProjectConfig);
+
+    if (PHP_OS_FAMILY !== 'Windows') {
+        $ptyResult = runRendererPlayWithObservedOutput(
+            dirname(__DIR__) . '/bin/ichiloto',
+            $projectDirectory,
+            pseudoTerminal: true,
+        );
+        $ptyObservation = json_decode(
+            (string) file_get_contents($projectDirectory . '/pty-observation.json'),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        assertRendererSelection($ptyResult['runningWhenReady'], 'The PTY fixture exited before its live output was observed.');
+        assertRendererSelection(
+            $ptyResult['visibleBeforeExit'],
+            'Direct child output was not visible before the game exited.',
+        );
+        assertRendererSelection($ptyResult['exitCode'] === 0, 'The PTY direct-launch fixture did not exit successfully.');
+        assertRendererSelection($ptyResult['error'] === '', 'The PTY direct-launch fixture wrote unexpected stderr.');
+        assertRendererSelection(($ptyObservation['stdinIsTty'] ?? false) === true, 'The direct child did not inherit terminal input.');
+        assertRendererSelection(($ptyObservation['stdoutIsTty'] ?? false) === true, 'The direct child did not inherit terminal output.');
+        assertRendererSelection(($ptyObservation['renderer'] ?? null) === 'terminal', 'The PTY direct child received the wrong renderer.');
+        assertRendererSelection(($ptyObservation['cwd'] ?? null) === realpath($projectDirectory), 'The PTY direct child received the wrong working directory.');
+    }
+
+    $pipeResult = runRendererPlayWithObservedOutput(
+        dirname(__DIR__) . '/bin/ichiloto',
+        $projectDirectory,
+        pseudoTerminal: false,
+    );
+    $pipeObservation = json_decode(
+        (string) file_get_contents($projectDirectory . '/pty-observation.json'),
+        true,
+        flags: JSON_THROW_ON_ERROR,
+    );
+    assertRendererSelection($pipeResult['runningWhenReady'], 'The redirected fixture exited before its live output was observed.');
+    assertRendererSelection($pipeResult['visibleBeforeExit'], 'Redirected child output was not visible before the game exited.');
+    assertRendererSelection($pipeResult['exitCode'] === 0, 'The redirected direct-launch fixture did not exit successfully.');
+    assertRendererSelection($pipeResult['error'] === '', 'The redirected direct-launch fixture wrote unexpected stderr.');
+    assertRendererSelection(($pipeObservation['stdinIsTty'] ?? true) === false, 'Redirected child input unexpectedly became a TTY.');
+    assertRendererSelection(($pipeObservation['stdoutIsTty'] ?? true) === false, 'Redirected child output unexpectedly became a TTY.');
+    assertRendererSelection(($pipeObservation['renderer'] ?? null) === 'terminal', 'The redirected direct child received the wrong renderer.');
+    assertRendererSelection(($pipeObservation['cwd'] ?? null) === realpath($projectDirectory), 'The redirected direct child received the wrong working directory.');
+    file_put_contents($projectDirectory . '/ichiloto.json', $projectConfig);
 
     file_put_contents($projectDirectory . '/fail-launch', 'fail');
     $result = runRendererPlayCommand(
