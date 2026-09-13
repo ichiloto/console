@@ -5,3 +5,5 @@
 *.log
 logs/*
 *.iedata
+composer.dev.json
+composer.dev.lock
