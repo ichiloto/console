@@ -7,7 +7,7 @@
         "symfony/console": "^8.0",
         "laravel/prompts": "^0.3.1",
         "league/climate": "^3.8",
-        "ichiloto/editor": "^0.5",
+        "ichiloto/editor": "^0.5.1",
         "amasiye/figlet": "^1.2.1"
     },
     "require-dev": {

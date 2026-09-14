@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0c7cf79e85cb28b1f817bb2838847a59",
+    "content-hash": "d695e4a5b279c73ec0af165be40b71fe",
     "packages": [
         {
             "name": "amasiye/figlet",
@@ -256,16 +256,16 @@
         },
         {
             "name": "ichiloto/editor",
-            "version": "0.5.0",
+            "version": "0.5.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/ichiloto/editor.git",
-                "reference": "7d879af522499686d2e2226cc79816ff790cff39"
+                "reference": "708a41988010ce37ee9d3234bb3886093db409bc"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ichiloto/editor/zipball/7d879af522499686d2e2226cc79816ff790cff39",
-                "reference": "7d879af522499686d2e2226cc79816ff790cff39",
+                "url": "https://api.github.com/repos/ichiloto/editor/zipball/708a41988010ce37ee9d3234bb3886093db409bc",
+                "reference": "708a41988010ce37ee9d3234bb3886093db409bc",
                 "shasum": ""
             },
             "require": {
@@ -301,9 +301,9 @@
             "description": "A simple TUI editor for the ichiloto game engine.",
             "support": {
                 "issues": "https://github.com/ichiloto/editor/issues",
-                "source": "https://github.com/ichiloto/editor/tree/0.5.0"
+                "source": "https://github.com/ichiloto/editor/tree/0.5.1"
             },
-            "time": "2026-08-21T17:55:58+00:00"
+            "time": "2026-09-14T02:30:38+00:00"
         },
         {
             "name": "ichiloto/engine",
