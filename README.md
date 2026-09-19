@@ -35,6 +35,7 @@ The CLI currently ships these commands:
 - `ichiloto generate:map` for complete Engine 0.5 map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
+- `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)
 
 ## Getting Started
 
