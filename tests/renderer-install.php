@@ -140,6 +140,17 @@ try {
         'reinstalling replaces the executable payload.',
     );
 
+    // Rapid reinstalls retain every backup, even within the same UTC second.
+    $backupDirectories = [$result['backupDirectory']];
+    for ($repeat = 0; $repeat < 4; $repeat++) {
+        $reinstalled = $installer->install($replacement['root'], $boundary);
+        $backupDirectories[] = $reinstalled['backupDirectory'];
+    }
+    assertRendererInstall(count(array_unique($backupDirectories)) === 5, 'rapid reinstalls use distinct backup directories.');
+    foreach ($backupDirectories as $backupDirectory) {
+        assertRendererInstall(is_dir($backupDirectory), 'each previous payload remains recoverable.');
+    }
+
     // 4. A second renderer joins the manifest without disturbing the first.
     $second = writeTestPackage("{$workspace}/package-doria", 'doria', $hostPlatform);
     $installer->install($second['root'], $boundary);
@@ -162,6 +173,25 @@ try {
 
     assertRendererInstall($refused, 'a hash mismatch refuses the installation.');
     assertRendererInstall(! isset(readManifest($boundary)['renderers']['tampered']), 'a refused package never reaches the manifest.');
+
+    // Verify the staging boundary rejects bytes changed after source verification.
+    $racing = writeTestPackage("{$workspace}/package-racing", 'racing', $hostPlatform);
+    $racingDescriptor = json_decode((string) file_get_contents($racing['descriptorFile']), true);
+    new ReflectionMethod($installer, 'verifyPayload')->invoke($installer, $racing['root'], $racingDescriptor['files']);
+    $racingSource = "{$racing['root']}/{$racing['executableRelative']}";
+    file_put_contents($racingSource, 'changed after verification');
+    $refused = false;
+    try {
+        new ReflectionMethod($installer, 'copyFile')->invoke(
+            $installer,
+            $racingSource,
+            "{$workspace}/staged-racing",
+            $racingDescriptor['files'][$racing['executableRelative']],
+        );
+    } catch (RuntimeException $error) {
+        $refused = str_contains($error->getMessage(), 'Staged package file') && str_contains($error->getMessage(), 'SHA-256');
+    }
+    assertRendererInstall($refused, 'staged bytes are rehashed against the descriptor, not trusted from the first verification.');
 
     // 6. Unsafe descriptor paths are refused.
     $unsafe = writeTestPackage("{$workspace}/package-unsafe", 'unsafe', $hostPlatform);
@@ -222,6 +252,38 @@ try {
         realpath($installer->resolveProjectBoundary($project)) === realpath($boundary),
         'a project resolves to its installed Engine renderer boundary.',
     );
+
+    // Unmergeable manifests must preserve both registrations and existing bytes.
+    $manifestFile = "{$boundary}/installed/manifest.json";
+    $validManifest = file_get_contents($manifestFile);
+    $originalPayload = file_get_contents($installedExecutable);
+    foreach (['{', '{"version":2,"renderers":{"future":{}}}', '{"version":1}',
+        '{"version":1,"renderers":{"testgpu":"invalid"}}',
+        '{"version":1,"renderers":{"testgpu":{"linux-x64":false}}}'] as $invalidManifest) {
+        file_put_contents($manifestFile, $invalidManifest);
+        foreach ([true, false] as $dryRun) {
+            $refused = false;
+            try {
+                $installer->install($package['root'], $boundary, $dryRun);
+            } catch (RuntimeException $error) {
+                $refused = str_contains($error->getMessage(), 'existing renderer manifest');
+            }
+            assertRendererInstall($refused, 'an unmergeable manifest refuses real and dry-run installations.');
+            assertRendererInstall(file_get_contents($manifestFile) === $invalidManifest, 'a refused manifest stays byte-identical.');
+            assertRendererInstall(file_get_contents($installedExecutable) === $originalPayload, 'refusal happens before payload replacement.');
+        }
+    }
+    unlink($manifestFile);
+    mkdir($manifestFile);
+    $refused = false;
+    try {
+        $installer->install($package['root'], $boundary);
+    } catch (RuntimeException $error) {
+        $refused = str_contains($error->getMessage(), 'cannot be read');
+    }
+    assertRendererInstall($refused && is_dir($manifestFile), 'an unreadable non-file manifest is preserved and refused.');
+    rmdir($manifestFile);
+    file_put_contents($manifestFile, $validManifest);
 
     echo "renderer-install: all checks passed.\n";
 } finally {

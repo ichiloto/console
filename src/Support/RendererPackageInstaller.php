@@ -236,14 +236,17 @@ final readonly class RendererPackageInstaller
         }
 
         $installedDirectory = $boundaryDirectory . '/installed';
+        // Refuse incompatible state before staging or replacing any payload.
+        $this->readInstalledManifest($installedDirectory);
         $payloadDirectory = $installedDirectory . '/' . $descriptor['renderer'] . '/' . $descriptor['platform'];
         $backupDirectory = is_dir($payloadDirectory)
             ? sprintf(
-                '%s/.backups/%s-%s-%s',
+                '%s/.backups/%s-%s-%s-%s',
                 $installedDirectory,
                 $descriptor['renderer'],
                 $descriptor['platform'],
                 gmdate('Ymd\THis\Z'),
+                bin2hex(random_bytes(8)),
             )
             : null;
 
@@ -268,7 +271,7 @@ final readonly class RendererPackageInstaller
 
         try {
             foreach ($descriptor['files'] as $path => $hash) {
-                $this->copyFile($packageRoot . '/' . $path, $staging . '/' . $path);
+                $this->copyFile($packageRoot . '/' . $path, $staging . '/' . $path, $hash);
             }
 
             $stagedExecutable = $staging . '/' . $descriptor['executable'];
@@ -295,7 +298,17 @@ final readonly class RendererPackageInstaller
                 throw new RuntimeException('The verified payload could not be moved into the installation directory.');
             }
 
-            $this->writeManifest($installedDirectory, $descriptor['renderer'], $descriptor['platform'], $descriptor['executable']);
+            try {
+                $this->writeManifest($installedDirectory, $descriptor['renderer'], $descriptor['platform'], $descriptor['executable']);
+            } catch (Throwable $error) {
+                $this->removeTree($payloadDirectory);
+
+                if ($backupDirectory !== null && ! @rename($backupDirectory, $payloadDirectory)) {
+                    throw new RuntimeException('The manifest update failed; the previous payload remains at ' . $backupDirectory, previous: $error);
+                }
+
+                throw $error;
+            }
         } finally {
             $this->removeTree($staging);
         }
@@ -303,24 +316,53 @@ final readonly class RendererPackageInstaller
         return $result;
     }
 
-    private function writeManifest(string $installedDirectory, string $renderer, string $platform, string $executable): void
+    /** @return array{version: int, renderers: array<string, array<string, string>>} */
+    private function readInstalledManifest(string $installedDirectory): array
     {
         $manifestFile = $installedDirectory . '/manifest.json';
-        $manifest = ['version' => self::MANIFEST_VERSION, 'renderers' => []];
 
-        if (is_file($manifestFile)) {
-            try {
-                $existing = json_decode((string) file_get_contents($manifestFile), true, flags: JSON_THROW_ON_ERROR);
+        if (! file_exists($manifestFile) && ! is_link($manifestFile)) {
+            return ['version' => self::MANIFEST_VERSION, 'renderers' => []];
+        }
 
-                if (is_array($existing) && ($existing['version'] ?? null) === self::MANIFEST_VERSION
-                    && is_array($existing['renderers'] ?? null)) {
-                    $manifest = $existing;
+        $contents = is_file($manifestFile) ? @file_get_contents($manifestFile) : false;
+
+        if ($contents === false) {
+            throw new RuntimeException('The existing renderer manifest cannot be read; installation was refused.');
+        }
+
+        try {
+            $manifest = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException $error) {
+            throw new RuntimeException('The existing renderer manifest is not valid JSON; installation was refused.', previous: $error);
+        }
+
+        if (! is_array($manifest) || ($manifest['version'] ?? null) !== self::MANIFEST_VERSION
+            || ! is_array($manifest['renderers'] ?? null)) {
+            throw new RuntimeException('The existing renderer manifest has an unsupported schema; installation was refused.');
+        }
+
+        foreach ($manifest['renderers'] as $renderer => $platforms) {
+            if (! is_string($renderer) || ! is_array($platforms)) {
+                throw new RuntimeException('The existing renderer manifest has invalid registrations; installation was refused.');
+            }
+
+            foreach ($platforms as $platform => $executable) {
+                if (! is_string($platform) || ! is_string($executable)) {
+                    throw new RuntimeException('The existing renderer manifest has invalid registrations; installation was refused.');
                 }
-            } catch (JsonException) {
-                // An unreadable manifest is replaced by a valid one below.
+
+                $this->assertSafeRelativePath($executable);
             }
         }
 
+        return $manifest;
+    }
+
+    private function writeManifest(string $installedDirectory, string $renderer, string $platform, string $executable): void
+    {
+        $manifestFile = $installedDirectory . '/manifest.json';
+        $manifest = $this->readInstalledManifest($installedDirectory);
         $manifest['renderers'][$renderer][$platform] = $executable;
         ksort($manifest['renderers']);
 
@@ -353,12 +395,16 @@ final readonly class RendererPackageInstaller
         return $files;
     }
 
-    private function copyFile(string $source, string $destination): void
+    private function copyFile(string $source, string $destination, string $hash): void
     {
         $this->ensureDirectory(dirname($destination));
 
         if (! @copy($source, $destination)) {
             throw new RuntimeException(sprintf('Package file %s could not be staged.', $source));
+        }
+
+        if (! hash_equals($hash, (string) hash_file('sha256', $destination))) {
+            throw new RuntimeException(sprintf('Staged package file %s fails SHA-256 verification.', $source));
         }
     }
 
