@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Editor\Actors\ActorIdentityMigration;
 use Ichiloto\Editor\ProjectWorkspace;
 use Ichiloto\Editor\Validation\Issue;
 use Ichiloto\Editor\Validation\ProjectValidator;
@@ -12,6 +13,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
+use function Laravel\Prompts\confirm;
 
 #[AsCommand(
   name: 'validate',
@@ -23,12 +25,13 @@ class ValidateCommand extends Command
   {
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
-      ->addOption('strict', 's', InputOption::VALUE_NONE, 'Treat warnings as failures too.');
+      ->addOption('strict', 's', InputOption::VALUE_NONE, 'Treat warnings as failures too.')
+      ->addOption('migrate-actor-ids', null, InputOption::VALUE_NONE, 'Add stable ids from current names to legacy actors without an id.');
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
   {
-    $workingDirectory = $input->getOption('directory') ?? getcwd() ?: '.';
+    $workingDirectory = (string) ($input->getOption('directory') ?? getcwd() ?: '.');
 
     if (is_not_valid_working_dir($workingDirectory)) {
       $output->writeln('<error>The working directory is not valid: ' . $workingDirectory . '</error>');
@@ -37,9 +40,9 @@ class ValidateCommand extends Command
     }
 
     $this->bootstrapDependencies($workingDirectory);
-
     try {
       $workspace = ProjectWorkspace::fromProject($workingDirectory);
+      $pendingActors = ActorIdentityMigration::getPendingActors($workspace->actorDatabase);
       $issues = new ProjectValidator()->validate($workspace);
     } catch (Throwable $throwable) {
       $output->writeln('<error>The project could not be read: ' . $throwable->getMessage() . '</error>');
@@ -48,6 +51,35 @@ class ValidateCommand extends Command
     }
 
     $this->report($output, $workspace->projectName, $issues);
+
+    if ($pendingActors !== []) {
+      $output->writeln(sprintf('  %d actor(s) have no explicit stable id:', count($pendingActors)));
+      foreach ($pendingActors as $actor) {
+        $output->writeln(sprintf('    %s (%s)', $actor->getName(), basename($actor->path)));
+      }
+
+      $shouldMigrate = (bool) $input->getOption('migrate-actor-ids')
+        || ($input->isInteractive() && confirm(
+          'Add each legacy actor\'s current name as its permanent id?',
+          false,
+        ));
+
+      if ($shouldMigrate) {
+        try {
+          $changedPaths = ActorIdentityMigration::migrateProject($workingDirectory);
+          $workspace = ProjectWorkspace::fromProject($workingDirectory);
+          $issues = new ProjectValidator()->validate($workspace);
+        } catch (Throwable $throwable) {
+          $output->writeln('<error>Actor id migration failed: ' . $throwable->getMessage() . '</error>');
+          return Command::FAILURE;
+        }
+
+        $output->writeln(sprintf('Added stable ids to %d actor(s); validation after migration:', count($changedPaths)));
+        $this->report($output, $workspace->projectName, $issues);
+      } else {
+        $output->writeln('Run validate --migrate-actor-ids to apply this one-time migration non-interactively.');
+      }
+    }
 
     $errors = $this->countOf($issues, Severity::ERROR);
     $warnings = $this->countOf($issues, Severity::WARNING);

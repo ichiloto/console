@@ -93,7 +93,7 @@ final class NewProjectScaffolder
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'system.php'),
             $this->renderSystemData(
                 title: $blueprint['displayName'],
-                heroId: $blueprint['heroId'],
+                heroIdentity: $blueprint['heroName'],
                 battleEngine: $blueprint['battleEngine'],
             ),
         );
@@ -504,11 +504,12 @@ logs/*
 !logs/.gitkeep
 .data/saves/*
 !.data/saves/.gitkeep
+/.data/player-settings.json
 *.iedata
 TXT;
     }
 
-    private function renderSystemData(string $title, string $heroId, string $battleEngine): string
+    private function renderSystemData(string $title, string $heroIdentity, string $battleEngine): string
     {
         return $this->renderPhpArrayFile([
             'title' => $title,
@@ -516,7 +517,7 @@ TXT;
                 'amount' => 0,
             ],
             'startingParty' => [
-                $heroId,
+                $heroIdentity,
             ],
             'startingInventory' => [],
             'startingPositions' => [
@@ -591,6 +592,7 @@ return [
   'class' => Character::class,
   'data' => [
     'name' => HERO_NAME,
+    'id' => HERO_NAME,
     'description' => '',
     'level' => 1,
     'currentExp' => 0,
