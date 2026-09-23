@@ -1,0 +1,12 @@
+{
+    "name": "ichiloto/released-0-5-project",
+    "description": "A terminal-native RPG created with the Ichiloto Engine.",
+    "type": "project",
+    "require": {
+        "php": "^8.4",
+        "ichiloto/engine": "^0.5"
+    },
+    "scripts": {
+        "play": "php released-0-5-project.php"
+    }
+}

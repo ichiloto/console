@@ -26,7 +26,7 @@ class ValidateCommand extends Command
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
       ->addOption('strict', 's', InputOption::VALUE_NONE, 'Treat warnings as failures too.')
-      ->addOption('migrate-actor-ids', null, InputOption::VALUE_NONE, 'Add stable ids from current names to legacy actors without an id.');
+      ->addOption('migrate-actor-ids', null, InputOption::VALUE_NONE, 'Freeze missing actor ids and repair legacy actor references.');
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
@@ -38,6 +38,7 @@ class ValidateCommand extends Command
 
       return Command::FAILURE;
     }
+    $workingDirectory = realpath($workingDirectory) ?: $workingDirectory;
 
     $this->bootstrapDependencies($workingDirectory);
     try {
@@ -57,16 +58,34 @@ class ValidateCommand extends Command
       foreach ($pendingActors as $actor) {
         $output->writeln(sprintf('    %s (%s)', $actor->getName(), basename($actor->path)));
       }
+    }
 
-      $shouldMigrate = (bool) $input->getOption('migrate-actor-ids')
+    $migrationRequested = (bool) $input->getOption('migrate-actor-ids');
+    if ($migrationRequested || $input->isInteractive()) {
+      try {
+        $plan = ActorIdentityMigration::planProject($workingDirectory);
+      } catch (Throwable $throwable) {
+        $output->writeln('<error>Actor id migration could not be planned: ' . $throwable->getMessage() . '</error>');
+        return $migrationRequested ? Command::FAILURE : $this->getValidationResult($input, $issues);
+      }
+
+      $plannedPaths = $plan->getChangedPaths();
+      if ($plannedPaths !== []) {
+        $output->writeln(sprintf('  Actor identity migration would update %d file(s):', count($plannedPaths)));
+        foreach ($plannedPaths as $path) {
+          $output->writeln('    ' . $path);
+        }
+      }
+
+      $shouldMigrate = $plannedPaths !== [] && ($migrationRequested
         || ($input->isInteractive() && confirm(
-          'Add each legacy actor\'s current name as its permanent id?',
+          'Freeze missing actor ids and update their legacy references?',
           false,
-        ));
+        )));
 
       if ($shouldMigrate) {
         try {
-          $changedPaths = ActorIdentityMigration::migrateProject($workingDirectory);
+          $changedPaths = $plan->apply();
           $workspace = ProjectWorkspace::fromProject($workingDirectory);
           $issues = new ProjectValidator()->validate($workspace);
         } catch (Throwable $throwable) {
@@ -74,13 +93,25 @@ class ValidateCommand extends Command
           return Command::FAILURE;
         }
 
-        $output->writeln(sprintf('Added stable ids to %d actor(s); validation after migration:', count($changedPaths)));
+        $output->writeln(sprintf(
+          'Added stable ids to %d actor(s) and updated %d file(s); validation after migration:',
+          count($pendingActors),
+          count($changedPaths),
+        ));
         $this->report($output, $workspace->projectName, $issues);
-      } else {
-        $output->writeln('Run validate --migrate-actor-ids to apply this one-time migration non-interactively.');
+      } elseif ($plannedPaths !== []) {
+        $output->writeln('Run validate --migrate-actor-ids to apply this migration non-interactively.');
       }
+    } elseif ($pendingActors !== []) {
+      $output->writeln('Run validate --migrate-actor-ids to apply this migration non-interactively.');
     }
 
+    return $this->getValidationResult($input, $issues);
+  }
+
+  /** @param Issue[] $issues */
+  private function getValidationResult(InputInterface $input, array $issues): int
+  {
     $errors = $this->countOf($issues, Severity::ERROR);
     $warnings = $this->countOf($issues, Severity::WARNING);
 

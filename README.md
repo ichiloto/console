@@ -229,6 +229,12 @@ composer install
 
 Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
 
+The `validate --migrate-actor-ids` work on `develop` uses
+`Ichiloto\Editor\Actors\ActorIdentityMigration`, which is not in Editor
+0.5.1. Before a future Console release includes that command, release a matching
+Editor version and verify Console's dependency constraint and a clean install
+against it. No new release is implied by the local source checkout.
+
 ### Sibling checkouts cascade automatically
 
 The published dependencies resolve remotely — `composer.json` declares no
