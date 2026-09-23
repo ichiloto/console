@@ -11,11 +11,10 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
-if (($argv[1] ?? null) === '--child') {
-    require dirname(__DIR__, 2) . '/engine/vendor/autoload.php';
-} else {
-    require dirname(__DIR__) . '/vendor/autoload.php';
-}
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+const STARTUP_TIMEOUT_SECONDS = 30;
+const STARTUP_POLL_MICROSECONDS = 50_000;
 
 /** Real title, loader, field and Engine loop; stops immediately after field startup. */
 final class StartupIdentityProbe extends Game
@@ -57,16 +56,16 @@ function runStartupChild(string $projectRoot): array
         throw new RuntimeException('Could not start bounded Game process.');
     }
     fclose($pipes[0]);
-    $deadline = microtime(true) + 30;
+    $deadline = microtime(true) + STARTUP_TIMEOUT_SECONDS;
     do {
         $status = proc_get_status($process);
         if (! $status['running']) { break; }
-        usleep(50000);
+        usleep(STARTUP_POLL_MICROSECONDS);
     } while (microtime(true) < $deadline);
     if ($status['running']) {
         proc_terminate($process);
         proc_close($process);
-        throw new RuntimeException('Bounded Game startup exceeded 30 seconds.');
+        throw new RuntimeException(sprintf('Bounded Game startup exceeded %d seconds.', STARTUP_TIMEOUT_SECONDS));
     }
     $code = $status['exitcode'] >= 0 ? $status['exitcode'] : proc_close($process);
     if ($status['exitcode'] >= 0) { proc_close($process); }
@@ -118,27 +117,64 @@ function makeSilentConfig(string $projectRoot, array $config): void
     file_put_contents($projectRoot . '/config.php', "<?php\n\nreturn " . var_export($config, true) . ";\n");
 }
 
+/** Accept the older vendored Engine only when no local source checkout exists. */
+function assertUpdatedLocalEngineIsSelected(): void
+{
+    $localSource = realpath(dirname(__DIR__, 2) . '/engine/src');
+    if ($localSource === false) { return; }
+
+    foreach ([AudioMutePreflight::class, PlayerSettings::class] as $class) {
+        if (! class_exists($class)) {
+            throw new RuntimeException("Local Engine API {$class} is unavailable through Console autoloading.");
+        }
+        $resolved = (string) (new ReflectionClass($class))->getFileName();
+        if (! str_starts_with($resolved, $localSource . DIRECTORY_SEPARATOR)) {
+            throw new RuntimeException("Console did not resolve {$class} from the local Engine source.");
+        }
+    }
+}
+
+function assertMutedConfig(ProjectConfig $effective): void
+{
+    foreach (['audio.music', 'audio.sfx', 'audio.voice'] as $path) {
+        if (boolval($effective->get($path, $path === 'audio.voice'))) {
+            throw new RuntimeException("Automated startup requires {$path} to be off.");
+        }
+    }
+    if (class_exists(AudioMutePreflight::class)) {
+        AudioMutePreflight::assertMuted($effective);
+    }
+}
+
 /** This must pass before opening any automated Game process. */
 function assertSilentProject(string $projectRoot): void
 {
     $previous = getcwd() ?: dirname(__DIR__);
     chdir($projectRoot);
     try {
-        ConfigStore::put(PlayerSettings::class, new PlayerSettings($projectRoot));
-        AudioMutePreflight::assertMuted(new ProjectConfig());
+        if (class_exists(PlayerSettings::class)) {
+            ConfigStore::put(PlayerSettings::class, new PlayerSettings($projectRoot));
+        } elseif (is_file($projectRoot . '/.data/player-settings.json')) {
+            throw new RuntimeException('Cannot verify a saved player-settings override with this Engine version.');
+        }
+        assertMutedConfig(new ProjectConfig());
     } finally {
-        ConfigStore::remove(PlayerSettings::class);
+        if (class_exists(PlayerSettings::class)) { ConfigStore::remove(PlayerSettings::class); }
         chdir($previous);
     }
 }
 
 if (($argv[1] ?? null) === '--child') {
     $projectRoot = $argv[2] ?? '';
+    assertUpdatedLocalEngineIsSelected();
+    assertSilentProject($projectRoot);
     chdir($projectRoot);
-    ConfigStore::put(PlayerSettings::class, new PlayerSettings($projectRoot));
-    AudioMutePreflight::assertMuted(new ProjectConfig());
     $game = new StartupIdentityProbe('Identity startup check');
-    AudioMutePreflight::assertMuted(ConfigStore::get(ProjectConfig::class));
+    $effectiveConfig = ConfigStore::get(ProjectConfig::class);
+    if (! $effectiveConfig instanceof ProjectConfig) {
+        throw new RuntimeException('Game did not load the effective project configuration.');
+    }
+    assertMutedConfig($effectiveConfig);
     $game->run();
     fwrite(STDERR, "GAME_SHUTDOWN_OK\n");
     exit(0);
@@ -147,7 +183,10 @@ if (($argv[1] ?? null) === '--child') {
 $temporaryRoot = sys_get_temp_dir() . '/ichiloto-startup-identity-' . bin2hex(random_bytes(8));
 $freshRoot = $temporaryRoot . '/fresh';
 $epicRoot = $temporaryRoot . '/epic-quest';
-$epicSource = dirname(__DIR__) . '/../examples/epic-quest';
+$epicFixture = getenv('ICHILOTO_EPIC_QUEST_SRC');
+$epicSource = is_string($epicFixture) && $epicFixture !== '' ? realpath($epicFixture) : false;
+
+assertUpdatedLocalEngineIsSelected();
 
 try {
     new NewProjectScaffolder()->scaffold([
@@ -167,19 +206,29 @@ try {
         throw new RuntimeException('Fresh project did not reach field startup: ' . $fresh['output']);
     }
 
-    mkdir($epicRoot, 0700, true);
-    copySmallProjectTree($epicSource . '/assets', $epicRoot . '/assets');
-    copy($epicSource . '/input.php', $epicRoot . '/input.php');
-    copy($epicSource . '/ichiloto.json', $epicRoot . '/ichiloto.json');
-    makeSilentConfig($epicRoot, require $epicSource . '/config.php');
-    assertSilentProject($epicRoot);
-    $epic = runStartupChild($epicRoot);
-    if ($epic['code'] !== 0 || ! str_contains($epic['output'], 'FIELD_STARTUP_OK')
-        || ! str_contains($epic['output'], 'GAME_SHUTDOWN_OK') || str_contains($epic['output'], '[ERROR]')) {
-        throw new RuntimeException('EpicQuest copy did not reach field startup: ' . $epic['output']);
+    fwrite(STDOUT, "PASS: fresh project reaches real field startup with effective audio muted.\n");
+
+    if ($epicFixture === false || $epicFixture === '') {
+        fwrite(STDOUT, "SKIP: set ICHILOTO_EPIC_QUEST_SRC to check EpicQuest field startup.\n");
+    } else {
+        if ($epicSource === false || ! is_file($epicSource . '/ichiloto.json')
+            || ! is_file($epicSource . '/config.php') || ! is_file($epicSource . '/input.php')
+            || ! is_dir($epicSource . '/assets')) {
+            throw new RuntimeException('ICHILOTO_EPIC_QUEST_SRC does not name a complete project.');
+        }
+        mkdir($epicRoot, 0700, true);
+        copySmallProjectTree($epicSource . '/assets', $epicRoot . '/assets');
+        copy($epicSource . '/input.php', $epicRoot . '/input.php');
+        copy($epicSource . '/ichiloto.json', $epicRoot . '/ichiloto.json');
+        makeSilentConfig($epicRoot, require $epicSource . '/config.php');
+        assertSilentProject($epicRoot);
+        $epic = runStartupChild($epicRoot);
+        if ($epic['code'] !== 0 || ! str_contains($epic['output'], 'FIELD_STARTUP_OK')
+            || ! str_contains($epic['output'], 'GAME_SHUTDOWN_OK') || str_contains($epic['output'], '[ERROR]')) {
+            throw new RuntimeException('EpicQuest copy did not reach field startup: ' . $epic['output']);
+        }
+        fwrite(STDOUT, "PASS: EpicQuest project reaches real field startup with effective audio muted.\n");
     }
 } finally {
     removeStartupFixture($temporaryRoot);
 }
-
-fwrite(STDOUT, "PASS: fresh and EpicQuest projects reach real field startup with effective audio muted.\n");
