@@ -10,13 +10,20 @@ use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\GameProcessLauncher;
 use Ichiloto\Console\Support\TerminalInteractivity;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
+use Ichiloto\Console\Support\SourceRendererUpdater;
 use Ichiloto\Console\Util\Path;
+use Closure;
 use InvalidArgumentException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Formatter\OutputFormatter;
+use Throwable;
+
+use function Laravel\Prompts\select;
 
 #[AsCommand(
     name: 'play',
@@ -34,18 +41,32 @@ class PlayCommand extends Command
 
   private readonly GameProcessLauncher $gameProcessLauncher;
 
+  private readonly SourceRendererUpdateChecker $rendererUpdateChecker;
+
+  private readonly SourceRendererUpdater $rendererUpdater;
+
+  private readonly Closure $rendererUpdatePrompt;
+
   public function __construct(
     ?RendererRegistry $rendererRegistry = null,
     ?RendererSelector $rendererSelector = null,
     ?TerminalInteractivity $terminalInteractivity = null,
     ?GameLaunchCommandBuilder $launchCommandBuilder = null,
     ?GameProcessLauncher $gameProcessLauncher = null,
+    ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
+    ?SourceRendererUpdater $rendererUpdater = null,
+    ?callable $rendererUpdatePrompt = null,
   ) {
     $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
     $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
     $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
     $this->launchCommandBuilder = $launchCommandBuilder ?? new GameLaunchCommandBuilder();
     $this->gameProcessLauncher = $gameProcessLauncher ?? new GameProcessLauncher($this->launchCommandBuilder);
+    $this->rendererUpdateChecker = $rendererUpdateChecker ?? new SourceRendererUpdateChecker();
+    $this->rendererUpdater = $rendererUpdater ?? new SourceRendererUpdater($this->rendererUpdateChecker);
+    $this->rendererUpdatePrompt = $rendererUpdatePrompt === null
+      ? static fn (string $label, array $options): int|string => select(label: $label, options: $options)
+      : Closure::fromCallable($rendererUpdatePrompt);
 
     parent::__construct();
   }
@@ -129,8 +150,10 @@ class PlayCommand extends Command
     $errorLogFile = $this->prepareErrorLogFile($workingDirectory);
 
     if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
-      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id);
+      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id, $input, $output);
     }
+
+    $this->offerRendererUpdate($workingDirectory, $renderer->id, $input, $output);
 
     $resultCode = $this->gameProcessLauncher->launch(
       workingDirectory: $workingDirectory,
@@ -189,6 +212,8 @@ class PlayCommand extends Command
     string $mainFile,
     string $errorLogFile,
     string $rendererId,
+    InputInterface $input,
+    OutputInterface $output,
   ): int
   {
     $sessionName = 'ichiloto-play-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
@@ -196,6 +221,7 @@ class PlayCommand extends Command
     $launchCommand = $this->launchCommandBuilder->buildCrashPreservingCommand($gameCommand, 'Ichiloto game');
 
     if (! $this->tmuxSessionExists($sessionName)) {
+      $this->offerRendererUpdate($workingDirectory, $rendererId, $input, $output);
       passthru($this->launchCommandBuilder->buildTmuxNewSessionCommand(
         sessionName: $sessionName,
         workingDirectory: $workingDirectory,
@@ -211,6 +237,41 @@ class PlayCommand extends Command
     passthru(sprintf('tmux attach-session -t %s', escapeshellarg($sessionName)), $exitCode);
 
     return $exitCode;
+  }
+
+  private function offerRendererUpdate(
+    string $workingDirectory,
+    string $rendererId,
+    InputInterface $input,
+    OutputInterface $output,
+  ): void
+  {
+    try {
+      $update = $this->rendererUpdateChecker->check($workingDirectory, $rendererId);
+      if ($update === null || $update->current || $update->skipped) { return; }
+      $output->writeln('<info>A ' . $rendererId . ' renderer update is available for ' . $update->platform . '.</info>');
+      if (! $input->isInteractive() || ! $this->terminalInteractivity->supportsPrompts()) {
+        $output->writeln('Continuing game launch with the selected renderer. Run `ichiloto renderer:update` to update it.');
+        return;
+      }
+      $choice = ($this->rendererUpdatePrompt)('Renderer update available', [
+        'update' => 'Update now',
+        'continue' => 'Continue this launch',
+        'skip' => 'Skip this version',
+      ]);
+      if ($choice === 'update') {
+        $installed = $this->rendererUpdater->update($workingDirectory, $rendererId, $output);
+        $output->writeln($installed ? '<info>Renderer updated.</info>' : '<info>Renderer is already current.</info>');
+      } elseif ($choice === 'skip') {
+        $this->rendererUpdater->skip($update);
+        $output->writeln('This renderer source version will not be offered again.');
+      } elseif ($choice !== 'continue') {
+        throw new \UnexpectedValueException('The renderer update choice was not recognized.');
+      }
+    } catch (Throwable $error) {
+      $output->writeln('<comment>Renderer update check or update failed: '
+        . OutputFormatter::escape($error->getMessage()) . '. Continuing game launch.</comment>');
+    }
   }
 
   /**

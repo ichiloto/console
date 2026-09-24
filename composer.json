@@ -45,6 +45,7 @@
             "@php tests/local-sibling-autoload.php",
             "@php tests/renderer-selection.php",
             "@php tests/renderer-install.php",
+            "@php tests/renderer-preparation.php",
             "@php tests/generate-map.php",
             "@php tests/new-project-save-compatibility.php",
             "@php tests/generate-actor-identity.php",

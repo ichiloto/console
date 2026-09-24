@@ -101,14 +101,39 @@ Renderer implementation discovery is managed internally. The command-line
 interface selects the stable `terminal` or `gpui` identity; it does not accept
 an executable location.
 
-This Console change communicates renderer launch intent only. GPUI rendering
-also requires companion Engine support that consumes `ICHILOTO_RENDERER` and
-resolves the registered implementation; selecting `gpui` does not provide that
-runtime integration by itself.
+The Engine consumes `ICHILOTO_RENDERER` and launches the registered platform
+implementation. WSL uses the Linux renderer, not a Windows executable.
 
 When `play` finds an existing project tmux session, it attaches to the game
 that is already running. A renderer option applies when a new game process is
 launched and cannot change the renderer of an existing session.
+
+### Renderer source development
+
+For Engine source checkouts with `resources/renderers/development.json`, a new
+graphical `ichiloto play` launch checks whether the declared renderer source has
+changed. The check does not build anything. In an interactive terminal, an
+available update offers Update now, Continue this launch, or Skip this version.
+Continue offers the update again next time; Skip suppresses it until the source
+fingerprint changes. Non-interactive launches report the update and continue.
+Game PHP and artwork changes do not invalidate the renderer source fingerprint.
+
+Run `ichiloto renderer:update` (or `ichiloto renderer:update <renderer>`) to
+build an optimized release package and install it on request. Console verifies
+the package before installation and preserves the previous installation if a
+build or verification fails. A failed update check or requested update warns but
+does not prevent `play` from attempting the selected renderer; the Engine may
+still reject a missing or incompatible installed renderer at startup. It never
+silently switches to terminal.
+
+This update path is limited to a non-vendored Engine checkout and its declared
+renderer checkout. Composer packages, including `--prefer-source` installs inside
+the project's `vendor` directory, do not search for source, run Cargo or download
+packages. Terminal launches and tmux reattachments skip the check. Direct PHP
+entrypoints use the installed renderer without an update check.
+
+`renderer:install` remains available for installing a previously built package.
+Automatic delivery of published platform packages is not implemented yet.
 
 ## Project Scaffolding
 
