@@ -8,6 +8,7 @@ use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\TerminalInteractivity;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\ApplicationTester;
@@ -48,6 +49,7 @@ function rendererTestCommand(
             static fn (): bool => $outputIsTty,
         ),
         launchCommandBuilder: new GameLaunchCommandBuilder(),
+        rendererUpdateChecker: new SourceRendererUpdateChecker(locateEngine: static fn (string $project): string => $project),
     );
 }
 

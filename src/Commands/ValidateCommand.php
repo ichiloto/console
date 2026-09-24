@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Editor\Actors\ActorIdentityMigration;
 use Ichiloto\Editor\ProjectWorkspace;
+use Ichiloto\Editor\Validation\ActorReferenceValidator;
 use Ichiloto\Editor\Validation\Issue;
 use Ichiloto\Editor\Validation\ProjectValidator;
 use Ichiloto\Editor\Validation\Severity;
@@ -12,6 +14,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
+use function Laravel\Prompts\confirm;
 
 #[AsCommand(
   name: 'validate',
@@ -23,23 +26,25 @@ class ValidateCommand extends Command
   {
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
-      ->addOption('strict', 's', InputOption::VALUE_NONE, 'Treat warnings as failures too.');
+      ->addOption('strict', 's', InputOption::VALUE_NONE, 'Treat warnings as failures too.')
+      ->addOption('migrate-actor-ids', null, InputOption::VALUE_NONE, 'Freeze missing actor ids and repair legacy actor references.');
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
   {
-    $workingDirectory = $input->getOption('directory') ?? getcwd() ?: '.';
+    $workingDirectory = (string) ($input->getOption('directory') ?? getcwd() ?: '.');
 
     if (is_not_valid_working_dir($workingDirectory)) {
       $output->writeln('<error>The working directory is not valid: ' . $workingDirectory . '</error>');
 
       return Command::FAILURE;
     }
+    $workingDirectory = realpath($workingDirectory) ?: $workingDirectory;
 
     $this->bootstrapDependencies($workingDirectory);
-
     try {
       $workspace = ProjectWorkspace::fromProject($workingDirectory);
+      $pendingActors = ActorIdentityMigration::getPendingActors($workspace->actorDatabase);
       $issues = new ProjectValidator()->validate($workspace);
     } catch (Throwable $throwable) {
       $output->writeln('<error>The project could not be read: ' . $throwable->getMessage() . '</error>');
@@ -49,6 +54,78 @@ class ValidateCommand extends Command
 
     $this->report($output, $workspace->projectName, $issues);
 
+    if ($pendingActors !== []) {
+      $output->writeln(sprintf('  %d actor(s) have no explicit stable id:', count($pendingActors)));
+      foreach ($pendingActors as $actor) {
+        $output->writeln(sprintf('    %s (%s)', $actor->getName(), basename($actor->path)));
+      }
+    }
+
+    $migrationRequested = (bool) $input->getOption('migrate-actor-ids');
+    $hasMigrationCandidate = $pendingActors !== [] || $this->hasUnresolvedActorReferences($issues);
+    if ($migrationRequested || ($input->isInteractive() && $hasMigrationCandidate)) {
+      try {
+        $plan = ActorIdentityMigration::planProject($workingDirectory);
+      } catch (Throwable $throwable) {
+        $output->writeln('<error>Actor id migration could not be planned: ' . $throwable->getMessage() . '</error>');
+        return $migrationRequested ? Command::FAILURE : $this->getValidationResult($input, $issues);
+      }
+
+      $plannedPaths = $plan->getChangedPaths();
+      if ($plannedPaths !== []) {
+        $output->writeln(sprintf('  Actor identity migration would update %d file(s):', count($plannedPaths)));
+        foreach ($plannedPaths as $path) {
+          $output->writeln('    ' . $path);
+        }
+      }
+
+      $shouldMigrate = $plannedPaths !== [] && ($migrationRequested
+        || ($input->isInteractive() && confirm(
+          'Freeze missing actor ids and update their legacy references?',
+          false,
+        )));
+
+      if ($shouldMigrate) {
+        try {
+          $changedPaths = $plan->apply();
+          $workspace = ProjectWorkspace::fromProject($workingDirectory);
+          $issues = new ProjectValidator()->validate($workspace);
+        } catch (Throwable $throwable) {
+          $output->writeln('<error>Actor id migration failed: ' . $throwable->getMessage() . '</error>');
+          return Command::FAILURE;
+        }
+
+        $output->writeln(sprintf(
+          'Added stable ids to %d actor(s) and updated %d file(s); validation after migration:',
+          count($pendingActors),
+          count($changedPaths),
+        ));
+        $this->report($output, $workspace->projectName, $issues);
+      } elseif ($plannedPaths !== []) {
+        $output->writeln('Run validate --migrate-actor-ids to apply this migration non-interactively.');
+      }
+    } elseif ($pendingActors !== []) {
+      $output->writeln('Run validate --migrate-actor-ids to apply this migration non-interactively.');
+    }
+
+    return $this->getValidationResult($input, $issues);
+  }
+
+  /** @param Issue[] $issues */
+  private function hasUnresolvedActorReferences(array $issues): bool
+  {
+    foreach ($issues as $issue) {
+      if ($issue->code === ActorReferenceValidator::UNRESOLVED_ACTOR_REFERENCE) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /** @param Issue[] $issues */
+  private function getValidationResult(InputInterface $input, array $issues): int
+  {
     $errors = $this->countOf($issues, Severity::ERROR);
     $warnings = $this->countOf($issues, Severity::WARNING);
 
