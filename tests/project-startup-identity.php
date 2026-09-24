@@ -5,23 +5,61 @@ declare(strict_types=1);
 use Ichiloto\Console\Support\NewProjectScaffolder;
 use Ichiloto\Engine\Audio\AudioMutePreflight;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
+use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
+use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 const STARTUP_TIMEOUT_SECONDS = 30;
 const STARTUP_POLL_MICROSECONDS = 50_000;
 
+/** Capture the rendered alert while it is still visible, then dismiss it. */
+final class CapturedAlertInputSource implements InputSourceInterface
+{
+    private ?string $renderedAlert = null;
+    private bool $dismissed = false;
+
+    public function poll(): ?KeyCode
+    {
+        if ($this->dismissed) { return null; }
+        $this->renderedAlert = implode("\n", Console::getBuffer());
+        $this->dismissed = true;
+        return KeyCode::ENTER;
+    }
+
+    public function reset(bool $drainBufferedInput = false): void {}
+
+    public function getRenderedAlert(): ?string
+    {
+        return $this->renderedAlert;
+    }
+}
+
 /** Real title, loader, field and Engine loop; stops immediately after field startup. */
 final class StartupIdentityProbe extends Game
 {
+    public string $probeMode = 'field';
+
     protected function start(): void
     {
         parent::start();
+        if ($this->probeMode === 'title-recovery') {
+            $this->verifyNewGameFailureRecoversTitle();
+            $this->quit();
+            return;
+        }
         $config = GameLoader::getInstance($this)->loadNewGame();
         $scene = $this->sceneManager->loadScene(GameScene::class)->currentScene;
         if (! $scene instanceof GameScene) {
@@ -34,13 +72,45 @@ final class StartupIdentityProbe extends Game
         fwrite(STDERR, "FIELD_STARTUP_OK\n");
         $this->quit();
     }
+
+    private function verifyNewGameFailureRecoversTitle(): void
+    {
+        $title = $this->sceneManager->currentScene;
+        if (! $title instanceof TitleScene) {
+            throw new RuntimeException('New Game did not begin at the title scene.');
+        }
+        $menu = (new ReflectionProperty(TitleScene::class, 'menu'))->getValue($title);
+        if (! $menu instanceof TitleMenu) {
+            throw new RuntimeException('The title scene has no active menu.');
+        }
+        $command = array_find($menu->getItems()->toArray(), static fn($item): bool => $item instanceof NewGameCommand);
+        if (! $command instanceof NewGameCommand) {
+            throw new RuntimeException('The title menu has no New Game command.');
+        }
+        $capture = new CapturedAlertInputSource();
+        InputManager::setInputSource($capture);
+        $result = $command->execute(new MenuCommandExecutionContext([], new BufferedOutput(), $menu, $title));
+        $alert = preg_replace('/\x1b\[[0-9;]*m/', '', $capture->getRenderedAlert() ?? '') ?? '';
+        $alert = preg_replace('/[║╔╗╚╝═]/u', ' ', $alert) ?? '';
+        $alert = preg_replace('/\s+/u', ' ', $alert) ?? '';
+        if ($result !== NewGameCommand::FAILURE
+            || ! $this->sceneManager->currentScene instanceof TitleScene
+            || ! $this->isRunning || $this->hasStopped()
+            || ! str_contains($alert, 'New Game Unavailable')
+            || ! str_contains($alert, 'assets/Data/system.php')
+            || ! str_contains($alert, 'AriaVale')
+            || ! str_contains($alert, 'ichiloto validate --migrate-actor-ids')) {
+            throw new RuntimeException('New Game did not show a recoverable title alert: ' . $alert);
+        }
+        fwrite(STDERR, "TITLE_FAILURE_RECOVERED\n");
+    }
 }
 
 /** @return array{code: int, output: string} */
-function runStartupChild(string $projectRoot): array
+function runStartupChild(string $projectRoot, string $probeMode = 'field'): array
 {
     $process = proc_open(
-        [PHP_BINARY, __FILE__, '--child', $projectRoot],
+        [PHP_BINARY, __FILE__, '--child', $projectRoot, $probeMode],
         [0 => ['pipe', 'r'], 1 => ['file', $projectRoot . '/startup.stdout', 'w'], 2 => ['file', $projectRoot . '/startup.stderr', 'w']],
         $pipes,
         $projectRoot,
@@ -203,6 +273,7 @@ if (($argv[1] ?? null) === '--child') {
     assertSilentProject($projectRoot);
     chdir($projectRoot);
     $game = new StartupIdentityProbe('Identity startup check');
+    $game->probeMode = $argv[3] ?? 'field';
     $effectiveConfig = ConfigStore::get(ProjectConfig::class);
     if (! $effectiveConfig instanceof ProjectConfig) {
         throw new RuntimeException('Game did not load the effective project configuration.');
@@ -316,6 +387,11 @@ try {
         || ! str_contains($partialBeforeRepair['output'], 'AriaVale')) {
         throw new RuntimeException('A modern actor id unexpectedly accepted its stale file-stem reference: ' . $partialBeforeRepair['output']);
     }
+    $recoveredTitle = runStartupChild($partialRoot, 'title-recovery');
+    if ($recoveredTitle['code'] !== 0 || ! str_contains($recoveredTitle['output'], 'TITLE_FAILURE_RECOVERED')
+        || str_contains($recoveredTitle['output'], 'FIELD_STARTUP_OK')) {
+        throw new RuntimeException('The released project did not recover a failed New Game at its title: ' . $recoveredTitle['output']);
+    }
     $partialValidation = runValidationChild($partialRoot);
     if ($partialValidation['code'] === 0 || ! str_contains($partialValidation['output'], 'startingParty')) {
         throw new RuntimeException('Validation missed an already identified actor with a stale party reference: ' . $partialValidation['output']);
@@ -332,7 +408,7 @@ try {
         || ! str_contains($partialStartup['output'], 'GAME_SHUTDOWN_OK')) {
         throw new RuntimeException('The partially migrated project could not start after reference repair: ' . $partialStartup['output']);
     }
-    fwrite(STDOUT, "PASS: already identified actors have stale released party references repaired.\n");
+    fwrite(STDOUT, "PASS: stale released party references show a recoverable title alert, then migrate cleanly.\n");
 
     copySmallProjectTree($releasedSource, $unsupportedRoot);
     $unsupportedActorPath = $unsupportedRoot . '/assets/Data/Actors/AriaVale.php';

@@ -4,6 +4,7 @@ namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Editor\Actors\ActorIdentityMigration;
 use Ichiloto\Editor\ProjectWorkspace;
+use Ichiloto\Editor\Validation\ActorReferenceValidator;
 use Ichiloto\Editor\Validation\Issue;
 use Ichiloto\Editor\Validation\ProjectValidator;
 use Ichiloto\Editor\Validation\Severity;
@@ -61,7 +62,8 @@ class ValidateCommand extends Command
     }
 
     $migrationRequested = (bool) $input->getOption('migrate-actor-ids');
-    if ($migrationRequested || $input->isInteractive()) {
+    $hasMigrationCandidate = $pendingActors !== [] || $this->hasUnresolvedActorReferences($issues);
+    if ($migrationRequested || ($input->isInteractive() && $hasMigrationCandidate)) {
       try {
         $plan = ActorIdentityMigration::planProject($workingDirectory);
       } catch (Throwable $throwable) {
@@ -107,6 +109,18 @@ class ValidateCommand extends Command
     }
 
     return $this->getValidationResult($input, $issues);
+  }
+
+  /** @param Issue[] $issues */
+  private function hasUnresolvedActorReferences(array $issues): bool
+  {
+    foreach ($issues as $issue) {
+      if ($issue->code === ActorReferenceValidator::UNRESOLVED_ACTOR_REFERENCE) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /** @param Issue[] $issues */
