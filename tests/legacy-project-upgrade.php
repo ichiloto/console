@@ -5,7 +5,9 @@ declare(strict_types=1);
 use Ichiloto\Console\Support\SaveCompatibilityMetadata;
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
 use Ichiloto\Console\Upgrade\Steps\SaveMetadataStep;
+use Ichiloto\Engine\Core\ProjectFormat;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
+use Ichiloto\Engine\IO\SaveCompatibility\TwoColumnCellsMigration;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -133,18 +135,22 @@ try {
     $manifest = require $manifestPath;
 
     if (($config['id'] ?? null) !== 'moon-studio/legacy-moon' || ($config['main'] ?? null) !== 'legacy-moon.php'
-        || ($config['format'] ?? null) !== SaveMetadataStep::VERSION) {
+        || ($config[ProjectFormat::KEY] ?? null) !== ProjectFormat::CURRENT) {
         failUpgradeTest('The upgrade did not preserve config while adopting the canonical Composer identity and recording the format.');
     }
 
-    if ($manifest !== SaveCompatibilityMetadata::baseline() || ! is_file($legacyRoot . '/ichiloto-upgrade-report.md')) {
-        failUpgradeTest('The upgrade did not create the canonical version-0 compatibility manifest and its report.');
+    // The baseline manifest, followed by the two-column cell migration of format 2.
+    $expectedManifest = ['contentVersion' => 1, 'migrations' => [['from' => 0, 'to' => 1, 'class' => TwoColumnCellsMigration::class]]]
+        + SaveCompatibilityMetadata::baseline();
+
+    if ($manifest != $expectedManifest || ! is_file($legacyRoot . '/ichiloto-upgrade-report.md')) {
+        failUpgradeTest('The upgrade did not create the canonical compatibility manifest and chain the format 2 migration.');
     }
 
     load_engine_autoloader($legacyRoot);
     $runtimeManifest = SaveCompatibilityManifest::fromProjectRoot($legacyRoot);
 
-    if ($runtimeManifest->projectId !== 'moon-studio/legacy-moon' || $runtimeManifest->contentVersion !== 0) {
+    if ($runtimeManifest->projectId !== 'moon-studio/legacy-moon' || $runtimeManifest->contentVersion !== 1) {
         failUpgradeTest('The Engine did not accept the upgraded save compatibility contract.');
     }
 
@@ -183,12 +189,15 @@ try {
     }
 
     $preserved = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $preservedRoot, '--yes']);
+    $preservedManifest = require $preservedRoot . '/assets/Data/save-compatibility.php';
     $preservedConfig = json_decode((string) file_get_contents($preservedRoot . '/ichiloto.json'), true);
 
     if ($preserved['exitCode'] !== 0
         || ($preservedConfig['id'] ?? null) !== 'studio/preserved-game'
-        || file_get_contents($preservedRoot . '/assets/Data/save-compatibility.php') !== $customManifest) {
-        failUpgradeTest('Existing save identity or compatibility metadata was overwritten: ' . $preserved['output']);
+        || ($preservedManifest['custom'] ?? null) !== true
+        || ($preservedManifest['contentVersion'] ?? null) !== 8
+        || ($preservedManifest['migrations'] ?? null) !== [['from' => 7, 'to' => 8, 'class' => TwoColumnCellsMigration::class]]) {
+        failUpgradeTest('Existing save identity or compatibility metadata was overwritten instead of extended: ' . $preserved['output']);
     }
 
     $invalidRoot = $temporaryRoot . '/invalid-id';
@@ -215,4 +224,4 @@ if (isset($testFailure)) {
     exit(1);
 }
 
-fwrite(STDOUT, "PASS: legacy projects gain stable, idempotent save metadata without overwriting existing contracts through the format chain.\n");
+fwrite(STDOUT, "PASS: legacy projects gain stable, idempotent save metadata without overwriting existing contracts, then continue through the format chain.\n");
