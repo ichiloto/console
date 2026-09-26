@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 use Ichiloto\Console\Support\NewProjectScaffolder;
+use Ichiloto\Engine\Core\ProjectFormat;
+use Ichiloto\Engine\Field\MapCell;
+use Ichiloto\Engine\Field\MapGridSource;
+use Ichiloto\Engine\Field\MapLayer;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -90,6 +94,21 @@ try {
 
     if (($project['id'] ?? null) !== 'ichiloto/save-ready-project') {
         failScaffolderTest('The generated project has no deterministic stable save identity.');
+    }
+
+    if (($project[ProjectFormat::KEY] ?? null) !== ProjectFormat::CURRENT) {
+        failScaffolderTest('The generated project does not record the current project format.');
+    }
+
+    $mapDirectory = $projectRoot . '/assets/Maps/campfire-clearing';
+    $terrain = MapLayer::parseGrid(MapGridSource::readFile($mapDirectory . '/campfire-clearing.map.php'));
+    $events = MapLayer::parseGrid(MapGridSource::readFile($mapDirectory . '/campfire-clearing.event.php'));
+    $spawn = $system['startingPositions']['player']['spawnPoint'] ?? [];
+
+    if (array_map(count(...), $terrain) !== array_map(count(...), $events)
+        || array_filter(array_merge(...$events), static fn(string $cell): bool => $cell !== MapCell::BLANK) !== []
+        || ($terrain[$spawn['y'] ?? -1][$spawn['x'] ?? -1] ?? null) !== MapCell::BLANK) {
+        failScaffolderTest('The starter map is not whole two-column cells with a blank event layer and an open start cell.');
     }
 
     if (($composer['name'] ?? null) !== $project['id']) {

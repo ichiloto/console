@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Console\Support;
 
 use Ichiloto\Console\Util\Path;
+use Ichiloto\Engine\Core\ProjectFormat;
 use RuntimeException;
 
 final class NewProjectScaffolder
@@ -203,25 +204,14 @@ final class NewProjectScaffolder
             'events' => [],
         ];
 
+        // Every cell is two terminal columns, so walls are written as `##`.
+        $wall = '##' . str_repeat(' ', 44) . '##';
         $tileRows = [
-            '################################################',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                       ?                      #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '#                                              #',
-            '################################################',
+            str_repeat('#', 48),
+            ...array_fill(0, 7, $wall),
+            '##' . str_repeat(' ', 22) . '? ' . str_repeat(' ', 20) . '##',
+            ...array_fill(0, 8, $wall),
+            str_repeat('#', 48),
         ];
         new MapScaffolder()->write($mapDirectory, $mapData, $tileRows);
     }
@@ -247,6 +237,7 @@ final class NewProjectScaffolder
     {
         return json_encode([
             'id' => $projectId,
+            ProjectFormat::KEY => ProjectFormat::CURRENT,
             'name' => $displayName,
             'description' => 'A terminal-born RPG forged with the Ichiloto Engine.',
             'version' => '0.1.0',
@@ -523,8 +514,9 @@ TXT;
             'startingPositions' => [
                 'player' => [
                     'destinationMap' => self::STARTING_MAP_ID,
+                    // A map cell is two terminal columns: cell 2 is columns 4 and 5.
                     'spawnPoint' => [
-                        'x' => 4,
+                        'x' => 2,
                         'y' => 4,
                     ],
                     'spawnSprite' => [
