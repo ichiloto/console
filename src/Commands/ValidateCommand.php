@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Support\ProjectFormatCheck;
 use Ichiloto\Editor\Actors\ActorIdentityMigration;
 use Ichiloto\Editor\ProjectWorkspace;
 use Ichiloto\Editor\Validation\ActorReferenceValidator;
@@ -10,6 +11,7 @@ use Ichiloto\Editor\Validation\ProjectValidator;
 use Ichiloto\Editor\Validation\Severity;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -42,6 +44,17 @@ class ValidateCommand extends Command
     $workingDirectory = realpath($workingDirectory) ?: $workingDirectory;
 
     $this->bootstrapDependencies($workingDirectory);
+    $formatProblem = ProjectFormatCheck::getProblem($workingDirectory);
+
+    if ($formatProblem !== null) {
+      // Older data would only produce misleading errors; the upgrade is what the project needs.
+      $output->writeln('');
+      $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
+      $output->writeln('');
+
+      return Command::FAILURE;
+    }
+
     try {
       $workspace = ProjectWorkspace::fromProject($workingDirectory);
       $pendingActors = ActorIdentityMigration::getPendingActors($workspace->actorDatabase);

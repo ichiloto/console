@@ -50,7 +50,7 @@ try {
         'sources' => ['gpui' => ['directory' => '../../../native', 'builder' => 'builder.php']]], JSON_THROW_ON_ERROR));
     file_put_contents($engine . '/src/Core/Game.php', '<?php namespace Ichiloto\\Engine\\Core; class Game {}');
     file_put_contents($project . '/vendor/autoload.php', '<?php require ' . var_export($engine . '/src/Core/Game.php', true) . ';');
-    file_put_contents($project . '/ichiloto.json', json_encode(['main' => 'main.php']));
+    file_put_contents($project . '/ichiloto.json', json_encode(['format' => Ichiloto\Engine\Core\ProjectFormat::CURRENT, 'main' => 'main.php']));
     file_put_contents($project . '/main.php', '<?php file_put_contents(__DIR__ . "/launched", getenv("ICHILOTO_RENDERER") ?: "none");');
 
     $checker = new SourceRendererUpdateChecker();

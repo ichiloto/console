@@ -9,6 +9,7 @@ use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\GameProcessLauncher;
+use Ichiloto\Console\Support\ProjectFormatCheck;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Ichiloto\Console\Support\SourceRendererUpdater;
@@ -106,6 +107,15 @@ class PlayCommand extends Command
     }
 
     $workingDirectory = $resolvedWorkingDirectory;
+    $formatProblem = ProjectFormatCheck::getProblem($workingDirectory);
+
+    if ($formatProblem !== null) {
+      // The engine would refuse the project after launch; say why before starting it.
+      $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
+
+      return Command::FAILURE;
+    }
+
     $output->writeln('Playing the game in the working directory: ' . $workingDirectory, OutputInterface::VERBOSITY_VERBOSE);
     $config = new AppConfig($input, $output, $workingDirectory);
     $configuredMainFile = $config->get('main');
