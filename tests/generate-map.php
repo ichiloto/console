@@ -3,8 +3,6 @@
 declare(strict_types=1);
 
 use Ichiloto\Console\Commands\GenerateMapCommand;
-use Ichiloto\Engine\Field\MapCell;
-use Ichiloto\Engine\Field\MapLayer;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -85,26 +83,16 @@ try {
         failMapTest('generate:map layers must return strings.');
     }
 
-    // Both layers are rows of whole two-column cells, and the event cells are blank.
-    $tileRows = MapLayer::parseGrid($tiles);
-    $eventRows = MapLayer::parseGrid($events);
+    $tileRows = explode("\n", $tiles);
+    $eventRows = explode("\n", $events);
 
     if (count($tileRows) !== count($eventRows)) {
         failMapTest('The generated event layer does not match the map height.');
     }
 
     foreach ($tileRows as $index => $tileRow) {
-        if (count($tileRow) !== count($eventRows[$index]) || $eventRows[$index] !== MapCell::getBlankRow(count($tileRow))) {
-            failMapTest('The generated event layer does not match the map width in blank cells.');
-        }
-    }
-
-    try {
-        new Ichiloto\Console\Support\MapScaffolder()->write($mapsRoot . '/half-cell', ['name' => 'Half Cell'], ['###']);
-        failMapTest('A map row ending halfway through a cell was written.');
-    } catch (RuntimeException $exception) {
-        if (! str_contains($exception->getMessage(), 'halfway through a cell') || is_dir($mapsRoot . '/half-cell')) {
-            failMapTest('A map row ending halfway through a cell was not refused before writing: ' . $exception->getMessage());
+        if (mb_strlen($tileRow) !== mb_strlen($eventRows[$index])) {
+            failMapTest('The generated event layer does not match the map width.');
         }
     }
 
@@ -126,7 +114,7 @@ try {
         failMapTest('generate:map could not replace the complete map with --force.');
     }
 
-    fwrite(STDOUT, "PASS: generate:map writes the complete map layout in two-column cells.\n");
+    fwrite(STDOUT, "PASS: generate:map writes the complete Engine 0.5 map layout.\n");
 } catch (Throwable $throwable) {
     fwrite(STDERR, "FAIL: {$throwable->getMessage()}\n");
     exit(1);

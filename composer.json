@@ -52,7 +52,6 @@
             "@php tests/project-startup-identity.php",
             "@php tests/validate-interactive-migration.php",
             "@php tests/legacy-project-upgrade.php",
-            "@php tests/two-column-cells-upgrade.php",
             "@php tests/project-format-refusal.php",
             "@php tests/validate-working-directory.php",
             "@php tests/battle-report.php"

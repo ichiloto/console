@@ -1,8 +1,0 @@
-{
-  "id": "fixture/two-column-cells",
-  "name": "Two Column Cells",
-  "format": 2,
-  "paths": {
-    "assets": "assets/"
-  }
-}

@@ -4,15 +4,10 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Support;
 
-use Ichiloto\Engine\Field\MapCell;
-use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
-/**
- * Writes the three files that make up a map: its data, one terrain layer of
- * two-column cells, and an event layer of blank cells matching it.
- */
+/** Writes the three files that make up an Engine 0.5 map. */
 final class MapScaffolder
 {
     /**
@@ -43,21 +38,15 @@ final class MapScaffolder
             }
         }
 
-        $tileRows ??= self::defaultTileRows();
-        $eventRows = [];
-
-        foreach ($tileRows as $index => $row) {
-            try {
-                $eventRows[] = implode('', MapCell::getBlankRow(count(MapCell::parseRow($row, "Map row {$index}"))));
-            } catch (InvalidArgumentException $error) {
-                throw new RuntimeException($error->getMessage(), previous: $error);
-            }
-        }
-
         if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
             throw new RuntimeException("Could not create directory: {$directory}");
         }
 
+        $tileRows ??= self::defaultTileRows();
+        $eventRows = array_map(
+            static fn(string $row): string => str_repeat(' ', mb_strlen($row)),
+            $tileRows,
+        );
         $payloads = [
             'data' => "<?php\n\nreturn " . var_export($data, true) . ";\n",
             'map' => self::renderLayer('ICHILOTO_MAP', $tileRows),
@@ -98,12 +87,12 @@ final class MapScaffolder
     /** @return string[] */
     private static function defaultTileRows(): array
     {
-        $cells = 24;
-        $border = str_repeat('##', $cells);
+        $width = 48;
+        $border = str_repeat('#', $width);
 
         return [
             $border,
-            ...array_fill(0, 16, '##' . str_repeat(MapCell::BLANK, $cells - 2) . '##'),
+            ...array_fill(0, 16, '#' . str_repeat(' ', $width - 2) . '#'),
             $border,
         ];
     }

@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Ichiloto\Console\Upgrade;
 
 use Ichiloto\Console\Upgrade\Steps\SaveMetadataStep;
-use Ichiloto\Console\Upgrade\Steps\TwoColumnCellsStep;
-use Ichiloto\Engine\Core\ProjectFormat;
 use InvalidArgumentException;
 
 /**
@@ -49,8 +47,7 @@ final readonly class ProjectUpgradeChain
     {
         return new self([
             new SaveMetadataStep(),
-            new TwoColumnCellsStep(),
-        ], ProjectFormat::CURRENT);
+        ], SaveMetadataStep::VERSION);
     }
 
     public function getRecordedVersion(ProjectUpgradeContext $context): int

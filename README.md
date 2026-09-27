@@ -32,7 +32,7 @@ The CLI currently ships these commands:
 - `ichiloto upgrade` for converting a project made for an older engine to the current project format
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
-- `ichiloto generate:map` for complete map scaffolding in two-column cells
+- `ichiloto generate:map` for complete Engine 0.5 map scaffolding
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 - `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)
@@ -226,45 +226,13 @@ stopped. A project that is already current is left untouched.
   chooses the save identity when format 1 has to add one.
 
 It ends by printing the follow-up items and writing them to
-`ichiloto-upgrade-report.md` in the project. The steps are:
+`ichiloto-upgrade-report.md` in the project. The chain has one step:
 
 1. **Format 1: save metadata.** Adds a permanent project id and
    `assets/Data/save-compatibility.php`, preserving metadata that already
    exists. A missing id comes from a canonical Composer package name when
    there is one, otherwise `ichiloto/<project-name>`. Never change that id
    after save files exist.
-2. **Format 2: square map cells.** A map cell is two terminal columns. Every
-   map layer and event layer is regrouped without evaluating its PHP: a row
-   of odd width gains a trailing space, and a two-column glyph that would
-   start halfway through a cell gets a space before it. Every field x
-   coordinate is halved, rounding down, in map data (NPCs, wander areas,
-   triggers, event spawn points and scripts), common events, cinematics and
-   the new game start; only the integer literals change. Horizontal move
-   route step counts are halved too. Retired `tiles2d` crops are removed,
-   and the save compatibility chain gains `TwoColumnCellsMigration`, so saved
-   games reopen in the cell that holds their column.
-
-The format 2 report lists, per map and file: event cells holding two
-different markers and layers that no longer line up (the map will not load
-until they are fixed); what the player can no longer reach; NPCs, events and
-spawn points now on a solid cell; NPCs now sharing a cell; every halved move
-route step, whose exact length depends on where it starts; and any coordinate
-the upgrade could not identify or that is not a literal, which it leaves for
-a person rather than guessing. Region map stations, screen positions and
-battle positions are not field cells and stay as they are.
-
-Reachability is compared rather than listing every cell that became solid.
-For each map, walkable ground is flood-filled from its entry points (spawn
-points and transfers that arrive on it, and the new game start) over the old
-one-column collision and over the new per-cell collision, walkable meaning
-what the engine lets the player step onto. The report names event areas,
-NPCs and transfer triggers that were reachable before and are not after
-(something counts as reached from the ground beside it), arrivals that no
-longer connect to each other, and each walkable region that was cut off, with
-a representative cell and the newly solid cell that most likely closed it,
-such as the pair that swallowed a one-column doorway. A one-line count of
-cells that became solid per map is kept for context. Re-proportioning rooms
-and furniture for square cells is the author's work after the conversion.
 
 ## FIGlet Generation
 

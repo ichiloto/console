@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use Ichiloto\Console\Support\NewProjectScaffolder;
 use Ichiloto\Engine\Core\ProjectFormat;
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapGridSource;
 use Ichiloto\Engine\Field\MapLayer;
 
@@ -100,15 +99,17 @@ try {
         failScaffolderTest('The generated project does not record the current project format.');
     }
 
+    // One terminal column is one map cell: the event layer matches the terrain
+    // cell for cell, holds no markers, and the new game starts on open ground.
     $mapDirectory = $projectRoot . '/assets/Maps/campfire-clearing';
     $terrain = MapLayer::parseGrid(MapGridSource::readFile($mapDirectory . '/campfire-clearing.map.php'));
     $events = MapLayer::parseGrid(MapGridSource::readFile($mapDirectory . '/campfire-clearing.event.php'));
     $spawn = $system['startingPositions']['player']['spawnPoint'] ?? [];
 
     if (array_map(count(...), $terrain) !== array_map(count(...), $events)
-        || array_filter(array_merge(...$events), static fn(string $cell): bool => $cell !== MapCell::BLANK) !== []
-        || ($terrain[$spawn['y'] ?? -1][$spawn['x'] ?? -1] ?? null) !== MapCell::BLANK) {
-        failScaffolderTest('The starter map is not whole two-column cells with a blank event layer and an open start cell.');
+        || array_filter(array_merge(...$events), static fn(string $cell): bool => $cell !== ' ') !== []
+        || ($terrain[$spawn['y'] ?? -1][$spawn['x'] ?? -1] ?? null) !== ' ') {
+        failScaffolderTest('The starter map has no matching blank event layer or an open start cell.');
     }
 
     if (($composer['name'] ?? null) !== $project['id']) {
