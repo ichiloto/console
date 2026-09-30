@@ -1,0 +1,22 @@
+{
+    "id": "ichiloto/released-0-5-project",
+    "name": "Released 0.5 Project",
+    "description": "A terminal-born RPG forged with the Ichiloto Engine.",
+    "version": "0.1.0",
+    "author": "",
+    "main": "released-0-5-project.php",
+    "paths": {
+        "assets": "assets/"
+    },
+    "debug": {
+        "enabled": false,
+        "level": 2,
+        "show": false,
+        "skip_splash": true
+    },
+    "splash_screen": {
+        "enabled": false,
+        "filename": "",
+        "duration": 2
+    }
+}

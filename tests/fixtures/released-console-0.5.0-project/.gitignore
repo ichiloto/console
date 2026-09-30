@@ -1,0 +1,10 @@
+/vendor/
+/.idea/
+/.vscode/
+/.env
+*.log
+logs/*
+!logs/.gitkeep
+.data/saves/*
+!.data/saves/.gitkeep
+*.iedata

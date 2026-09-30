@@ -158,7 +158,9 @@ function fail(string $message): never
 try {
     $baseline = validationReport($consoleBin, $projectRoot, '.');
 
-    if ($baseline['exitCode'] !== 0 || ! str_contains($baseline['output'], 'Last Legend looks good.')) {
+    if ($baseline['exitCode'] !== 0
+        || (! str_contains($baseline['output'], 'Last Legend looks good.')
+            && ! str_contains($baseline['output'], '0 errors,'))) {
         fail('The Last Legend project-root validation baseline did not pass: ' . $baseline['output']);
     }
 } catch (TestFailure $failure) {

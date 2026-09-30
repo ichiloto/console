@@ -20,6 +20,7 @@ use Ichiloto\Console\Commands\GenerateMapCommand;
 use Ichiloto\Console\Commands\NewCommand;
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Commands\RendererInstallCommand;
+use Ichiloto\Console\Commands\RendererUpdateCommand;
 use Ichiloto\Console\Commands\UpgradeCommand;
 use Ichiloto\Console\Commands\ValidateCommand;
 use Symfony\Component\Console\Application;
@@ -40,6 +41,7 @@ function bootstrap(): int
       new GenerateActorCommand(),
       new GenerateFigletCommand(),
       new RendererInstallCommand(),
+      new RendererUpdateCommand(),
       new UpgradeCommand(),
       new ValidateCommand()
     ]);

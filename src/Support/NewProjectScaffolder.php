@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Console\Support;
 
 use Ichiloto\Console\Util\Path;
+use Ichiloto\Engine\Core\ProjectFormat;
 use RuntimeException;
 
 final class NewProjectScaffolder
@@ -93,7 +94,7 @@ final class NewProjectScaffolder
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'system.php'),
             $this->renderSystemData(
                 title: $blueprint['displayName'],
-                heroId: $blueprint['heroId'],
+                heroIdentity: $blueprint['heroName'],
                 battleEngine: $blueprint['battleEngine'],
             ),
         );
@@ -247,6 +248,7 @@ final class NewProjectScaffolder
     {
         return json_encode([
             'id' => $projectId,
+            ProjectFormat::KEY => ProjectFormat::CURRENT,
             'name' => $displayName,
             'description' => 'A terminal-born RPG forged with the Ichiloto Engine.',
             'version' => '0.1.0',
@@ -504,11 +506,12 @@ logs/*
 !logs/.gitkeep
 .data/saves/*
 !.data/saves/.gitkeep
+/.data/player-settings.json
 *.iedata
 TXT;
     }
 
-    private function renderSystemData(string $title, string $heroId, string $battleEngine): string
+    private function renderSystemData(string $title, string $heroIdentity, string $battleEngine): string
     {
         return $this->renderPhpArrayFile([
             'title' => $title,
@@ -516,7 +519,7 @@ TXT;
                 'amount' => 0,
             ],
             'startingParty' => [
-                $heroId,
+                $heroIdentity,
             ],
             'startingInventory' => [],
             'startingPositions' => [
@@ -591,6 +594,7 @@ return [
   'class' => Character::class,
   'data' => [
     'name' => HERO_NAME,
+    'id' => HERO_NAME,
     'description' => '',
     'level' => 1,
     'currentExp' => 0,

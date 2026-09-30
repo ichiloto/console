@@ -29,10 +29,10 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
-- `ichiloto upgrade` for adding mandatory save metadata to projects created by older Console versions
+- `ichiloto upgrade` for converting a project made for an older engine to the current project format
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
-- `ichiloto generate:map` for complete Engine 0.5 map scaffolding
+- `ichiloto generate:map` for complete Engine 0.5 map scaffolding, created with its kind (`--kind`, one of the project's tilesets; asked when omitted)
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 - `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)
@@ -101,14 +101,39 @@ Renderer implementation discovery is managed internally. The command-line
 interface selects the stable `terminal` or `gpui` identity; it does not accept
 an executable location.
 
-This Console change communicates renderer launch intent only. GPUI rendering
-also requires companion Engine support that consumes `ICHILOTO_RENDERER` and
-resolves the registered implementation; selecting `gpui` does not provide that
-runtime integration by itself.
+The Engine consumes `ICHILOTO_RENDERER` and launches the registered platform
+implementation. WSL uses the Linux renderer, not a Windows executable.
 
 When `play` finds an existing project tmux session, it attaches to the game
 that is already running. A renderer option applies when a new game process is
 launched and cannot change the renderer of an existing session.
+
+### Renderer source development
+
+For Engine source checkouts with `resources/renderers/development.json`, a new
+graphical `ichiloto play` launch checks whether the declared renderer source has
+changed. The check does not build anything. In an interactive terminal, an
+available update offers Update now, Continue this launch, or Skip this version.
+Continue offers the update again next time; Skip suppresses it until the source
+fingerprint changes. Non-interactive launches report the update and continue.
+Game PHP and artwork changes do not invalidate the renderer source fingerprint.
+
+Run `ichiloto renderer:update` (or `ichiloto renderer:update <renderer>`) to
+build an optimized release package and install it on request. Console verifies
+the package before installation and preserves the previous installation if a
+build or verification fails. A failed update check or requested update warns but
+does not prevent `play` from attempting the selected renderer; the Engine may
+still reject a missing or incompatible installed renderer at startup. It never
+silently switches to terminal.
+
+This update path is limited to a non-vendored Engine checkout and its declared
+renderer checkout. Composer packages, including `--prefer-source` installs inside
+the project's `vendor` directory, do not search for source, run Cargo or download
+packages. Terminal launches and tmux reattachments skip the check. Direct PHP
+entrypoints use the installed renderer without an update check.
+
+`renderer:install` remains available for installing a previously built package.
+Automatic delivery of published platform packages is not implemented yet.
 
 ## Project Scaffolding
 
@@ -175,19 +200,39 @@ readable at forty columns.
 
 ### Upgrading an existing project
 
-Projects created before versioned saves were introduced need a permanent
-project id and `assets/Data/save-compatibility.php`. From the project root, run:
+A project records its format version as `"format"` in `ichiloto.json`; a
+project without one is format 0. The game and the editor refuse a project
+whose format is not the engine's, and `ichiloto play` and `ichiloto validate`
+stop before launching or reading it, printing the engine's explanation. From
+the project root, run:
 
 ```bash
 ichiloto upgrade
 ichiloto validate
 ```
 
-The upgrader preserves metadata that already exists. When the id is missing it
-uses a canonical Composer package name when available, otherwise it derives
-`ichiloto/<project-name>`. Preview the result with `--dry-run`, or choose the
-identity explicitly with `--id=vendor/project`. Never change that id after save
-files exist.
+The upgrade needs no arguments. It first lists, one line per pending format,
+what will change and how much, then asks before writing anything. It runs
+every step from the project's format to the engine's, in order, and records
+the new format after each one, so an interrupted upgrade continues where it
+stopped. A project that is already current is left untouched.
+
+- `--dry-run` prints the same list and changes nothing.
+- `--yes` (`-y`) upgrades without the prompt; without a terminal it is
+  required, so a script never converts a project by accident.
+- In a Git working tree the upgrade refuses to run over uncommitted changes,
+  so it is one reviewable, reversible change. `--allow-dirty` overrides that.
+- `--directory` names another project directory, and `--id=vendor/project`
+  chooses the save identity when format 1 has to add one.
+
+It ends by printing the follow-up items and writing them to
+`ichiloto-upgrade-report.md` in the project. The chain has one step:
+
+1. **Format 1: save metadata.** Adds a permanent project id and
+   `assets/Data/save-compatibility.php`, preserving metadata that already
+   exists. A missing id comes from a canonical Composer package name when
+   there is one, otherwise `ichiloto/<project-name>`. Never change that id
+   after save files exist.
 
 ## FIGlet Generation
 
@@ -228,6 +273,12 @@ composer install
 ```
 
 Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
+
+The `validate --migrate-actor-ids` work on `develop` uses
+`Ichiloto\Editor\Actors\ActorIdentityMigration`, which is not in Editor
+0.5.1. Before a future Console release includes that command, release a matching
+Editor version and verify Console's dependency constraint and a clean install
+against it. No new release is implied by the local source checkout.
 
 ### Sibling checkouts cascade automatically
 
