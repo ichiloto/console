@@ -32,7 +32,7 @@ The CLI currently ships these commands:
 - `ichiloto upgrade` for converting a project made for an older engine to the current project format
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
-- `ichiloto generate:map` for complete Engine 0.5 map scaffolding
+- `ichiloto generate:map` for complete Engine 0.5 map scaffolding, created with its kind (`--kind`, one of the project's tilesets; asked when omitted)
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 - `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)

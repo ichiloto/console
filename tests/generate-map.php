@@ -79,6 +79,11 @@ try {
         failMapTest('generate:map wrote invalid map metadata.');
     }
 
+    // A project without tilesets has no kinds, so its map has none.
+    if (array_key_exists('tileset', $data) || ! str_contains($tester->getDisplay(), 'Kind: none')) {
+        failMapTest('generate:map gave a kind to a map in a project without tilesets.');
+    }
+
     if (! is_string($tiles) || ! is_string($events)) {
         failMapTest('generate:map layers must return strings.');
     }
@@ -114,7 +119,34 @@ try {
         failMapTest('generate:map could not replace the complete map with --force.');
     }
 
-    fwrite(STDOUT, "PASS: generate:map writes the complete Engine 0.5 map layout.\n");
+    // In a project with tilesets, every new map is created with its kind.
+    mkdir($temporaryRoot . '/assets/Data/Tilesets', 0755, true);
+    foreach (['interior' => 'Interior', 'exterior' => 'Exterior'] as $id => $name) {
+        file_put_contents($temporaryRoot . "/assets/Data/Tilesets/{$id}.php",
+            "<?php\n\nreturn ['name' => '{$name}', 'sheets' => ['B' => 'Graphics/Tilesets/{$name}_B.png']];\n");
+    }
+    $kindDirectory = $mapsRoot . '/lantern-hall';
+    $kindArguments = ['name' => 'Lantern Hall', '--region' => '', '--description' => ''];
+
+    if ($tester->execute($kindArguments, ['interactive' => false]) !== Command::FAILURE
+        || ! str_contains($tester->getDisplay(), "Name the map's kind with --kind: exterior, interior.")
+        || is_dir($kindDirectory)) {
+        failMapTest('generate:map created a map without a kind in a project that has tilesets.');
+    }
+
+    if ($tester->execute([...$kindArguments, '--kind' => 'cavern'], ['interactive' => false]) !== Command::FAILURE
+        || ! str_contains($tester->getDisplay(), "cavern is not one of the project's kinds: exterior, interior.")
+        || is_dir($kindDirectory)) {
+        failMapTest('generate:map accepted a kind the project does not have.');
+    }
+
+    if ($tester->execute([...$kindArguments, '--kind' => 'interior'], ['interactive' => false]) !== Command::SUCCESS
+        || ((require $kindDirectory . '/lantern-hall.data.php')['tileset'] ?? null) !== 'interior'
+        || ! str_contains($tester->getDisplay(), 'Kind: Interior')) {
+        failMapTest('generate:map did not create the map with the kind it was given: ' . $tester->getDisplay());
+    }
+
+    fwrite(STDOUT, "PASS: generate:map writes the complete Engine 0.5 map layout, with its kind.\n");
 } catch (Throwable $throwable) {
     fwrite(STDERR, "FAIL: {$throwable->getMessage()}\n");
     exit(1);
