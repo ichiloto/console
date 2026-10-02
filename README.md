@@ -177,6 +177,25 @@ built from is refused, every problem named, before a battle starts:
 ichiloto battle --member "Kaelion:20,Weapon=Iron Sword" --member Liora:18 --troop "Great Wolf"
 ```
 
+A member can also carry a test loadout, so a command, skill or summon can be
+tried before the game makes it available:
+
+- `Commands=` replaces the member's command menu, by command id (`attack`,
+  `skill`, `magic`, `summon`, `item`, `guard`, `escape`) or the label the
+  project shows for it;
+- `Skills=` grants abilities or spells from the project's skill catalogue, on
+  top of what the member already knows;
+- `Summons=` grants summons by id.
+
+Each is a list separated by `|`. The grants exist only in the fresh test
+party; they change no campaign progress. Costs, targets and the summon's own
+rules still apply, and a summon the member cannot hold is refused like any
+other problem:
+
+```bash
+ichiloto battle --member "Liora:20,Commands=attack|magic|summon|item,Skills=Burn I|Heal I,Summons=ifrit" --troop "Loch Ness"
+```
+
 Choose the renderer as `ichiloto play` does, with `--renderer` or
 `--gpui-renderer`. Give it a run count instead and it simulates the fight
 repeatedly, with the same party, and reports what the fight *is*:

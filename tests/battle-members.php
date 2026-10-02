@@ -96,6 +96,13 @@ try {
     assertBattleMembers($status === Command::INVALID && str_contains($display, 'at most 4 members'),
         'more members than a party holds are refused');
 
+    if (! method_exists(\Ichiloto\Engine\Scenes\Arena\BattleTestMember::class, 'withCommands')) {
+        [, $status, $display] = runBattleMembers($project, ['Hero,Commands=attack|summon']);
+        assertBattleMembers($status === Command::INVALID
+            && str_contains($display, "this project's engine cannot set a member's commands, skills or summons; update its engine."),
+            'an engine without test loadouts says so instead of ignoring them');
+    }
+
     [, $status, $display] = runBattleMembers($project, ['ghost'], ['--runs' => '2']);
     assertBattleMembers($status === Command::INVALID && str_contains($display, 'no such actor'),
         '--runs refuses the same setup problems before simulating');

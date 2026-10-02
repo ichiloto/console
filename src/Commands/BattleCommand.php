@@ -12,10 +12,13 @@ use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Ichiloto\Console\Support\SourceRendererUpdater;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use InvalidArgumentException;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
@@ -83,7 +86,7 @@ class BattleCommand extends Command
       ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'Simulate this many battles instead of playing one.')
       ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50')
       ->addOption('member', 'm', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
-        sprintf('A party member, as Actor[:level][,Slot=item...]; repeat for each, up to %d. Without it, the starting party.',
+        sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]; repeat for each, up to %d. Without it, the starting party.',
           class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
       ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
         sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
@@ -715,8 +718,17 @@ class BattleCommand extends Command
         }
         $equipment[$slot] = $item?->id;
       }
-      $setupMembers[] = new BattleTestMember($actorId, $option->level ?? $actors->require($actorId, 'ichiloto battle')->createCharacter()->level,
-        $equipment);
+      $level = $option->level ?? $actors->require($actorId, 'ichiloto battle')->createCharacter()->level;
+      if ($option->commands === null && $option->skills === [] && $option->summons === []) {
+        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment);
+        continue;
+      }
+      if (! method_exists(BattleTestMember::class, 'withCommands')) {
+        $problems[] = sprintf("--member %s: this project's engine cannot set a member's commands, skills or summons; update its engine.", $option->actor);
+        continue;
+      }
+      $setupMembers[] = new BattleTestMember($actorId, $level, $equipment,
+        $this->resolveCommands($option, $problems), $this->resolveSkills($option, $problems), $this->resolveSummons($option, $problems));
     }
     $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers);
     $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
@@ -725,6 +737,89 @@ class BattleCommand extends Command
     }
 
     return $setup;
+  }
+
+  /**
+   * Resolves a member's Commands= list to the engine's command types, by id
+   * or by the label the project shows for it.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return list<BattleCommandType>|null The command menu, or null to keep the normal one.
+   */
+  protected function resolveCommands(BattleMemberOption $option, array &$problems): ?array
+  {
+    if ($option->commands === null) {
+      return null;
+    }
+    $commands = [];
+    foreach ($option->commands as $reference) {
+      $command = BattleCommandType::fromCommandName($reference);
+      if ($command === null) {
+        $problems[] = sprintf('--member %s: there is no command %s (commands: %s).', $option->actor, $reference,
+          implode(', ', array_map(static fn(BattleCommandType $type): string => $type->value, BattleCommandType::cases())));
+        continue;
+      }
+      $commands[] = $command;
+    }
+
+    return $commands;
+  }
+
+  /**
+   * Resolves a member's Skills= list against the project's skill catalogue,
+   * which spans its abilities and spells wherever they are authored.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return list<string> Canonical skill names.
+   */
+  protected function resolveSkills(BattleMemberOption $option, array &$problems): array
+  {
+    $catalog = SkillCatalog::getProjectCatalog();
+    $skills = [];
+    foreach ($option->skills as $reference) {
+      if ($catalog->findSkill($reference) !== null) {
+        $skills[] = $reference;
+        continue;
+      }
+      $similar = array_values(array_filter(array_keys($catalog->getSkills()),
+        static fn(string $name): bool => strcasecmp($name, $reference) === 0));
+      $problems[] = sprintf('--member %s: the project has no skill %s%s.', $option->actor, $reference,
+        $similar === [] ? '' : sprintf(' (did you mean %s?)', implode(' or ', $similar)));
+    }
+
+    return $skills;
+  }
+
+  /**
+   * Resolves a member's Summons= list to the project's summon ids.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return list<string> Summon ids.
+   */
+  protected function resolveSummons(BattleMemberOption $option, array &$problems): array
+  {
+    if ($option->summons === []) {
+      return [];
+    }
+    $library = new SummonCutsceneLibrary();
+    $summons = [];
+    foreach ($option->summons as $reference) {
+      try {
+        $summon = $library->findById($reference);
+      } catch (\Throwable $unreadable) {
+        $problems[] = sprintf('--member %s: summon %s cannot be read: %s', $option->actor, $reference, $unreadable->getMessage());
+        continue;
+      }
+      if ($summon === null) {
+        $ids = array_map(static fn($definition): string => $definition->id, $library->load());
+        $problems[] = sprintf('--member %s: the project has no summon %s (summons: %s).', $option->actor, $reference,
+          $ids === [] ? 'none' : implode(', ', $ids));
+        continue;
+      }
+      $summons[] = $summon->id;
+    }
+
+    return $summons;
   }
 
   /**
