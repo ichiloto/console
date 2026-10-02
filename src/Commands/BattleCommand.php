@@ -3,6 +3,14 @@
 namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Console\Battle\ParticipantSnapshot;
+use Ichiloto\Console\Renderer\RendererRegistry;
+use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Support\GameLaunchCommandBuilder;
+use Ichiloto\Console\Support\RendererUpdateOffer;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
+use Ichiloto\Console\Support\SourceRendererUpdater;
+use Ichiloto\Console\Support\TerminalInteractivity;
+use InvalidArgumentException;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
@@ -34,13 +42,44 @@ use Throwable;
 )]
 class BattleCommand extends Command
 {
+  private readonly RendererRegistry $rendererRegistry;
+
+  private readonly RendererSelector $rendererSelector;
+
+  private readonly TerminalInteractivity $terminalInteractivity;
+
+  private readonly RendererUpdateOffer $rendererUpdateOffer;
+
+  /**
+   * @param (callable(string, array<string, string>): (int|string))|null $rendererUpdatePrompt
+   */
+  public function __construct(
+    ?RendererRegistry $rendererRegistry = null,
+    ?RendererSelector $rendererSelector = null,
+    ?TerminalInteractivity $terminalInteractivity = null,
+    ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
+    ?SourceRendererUpdater $rendererUpdater = null,
+    ?callable $rendererUpdatePrompt = null,
+  ) {
+    $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
+    $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
+    $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
+    $this->rendererUpdateOffer = new RendererUpdateOffer($rendererUpdateChecker, $rendererUpdater,
+      $this->terminalInteractivity, $rendererUpdatePrompt);
+
+    parent::__construct();
+  }
+
   public function configure(): void
   {
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
       ->addOption('troop', 't', InputOption::VALUE_REQUIRED, 'The troop to fight. Without it the arena opens on the list.')
       ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'Simulate this many battles instead of playing one.')
-      ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50');
+      ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50')
+      ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
+        sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
+      ->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Play the battle in the GPUI renderer.');
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
@@ -62,7 +101,33 @@ class BattleCommand extends Command
     // Playing the fight is the point; simulating it is what you do once you
     // have played it and want to know what it does a hundred times over.
     if ($input->getOption('runs') === null) {
-      return $this->play($workingDirectory, $input->getOption('troop'), $output);
+      $rendererOption = $input->getOption('renderer');
+      if ($rendererOption !== null && ! is_string($rendererOption)) {
+        $output->writeln('The renderer option must be a renderer ID.');
+
+        return Command::INVALID;
+      }
+      try {
+        $renderer = $this->rendererSelector->resolve(
+          rendererOption: $rendererOption,
+          gpuiAlias: (bool) $input->getOption('gpui-renderer'),
+          canPrompt: $input->isInteractive() && $this->terminalInteractivity->supportsPrompts(),
+        );
+      } catch (InvalidArgumentException $exception) {
+        $output->writeln($exception->getMessage());
+
+        return Command::INVALID;
+      }
+      $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
+
+      return $this->play($workingDirectory, $input->getOption('troop'), $renderer->id, $output);
+    }
+
+    // A simulation draws nothing, so a renderer is a mistake to point out.
+    if ($input->getOption('renderer') !== null || (bool) $input->getOption('gpui-renderer')) {
+      $output->writeln('A renderer applies to playing a battle, not to simulating one with --runs.');
+
+      return Command::INVALID;
     }
 
     $previousDirectory = getcwd();
@@ -521,7 +586,7 @@ class BattleCommand extends Command
    * @param OutputInterface $output Where to report a failure.
    * @return int The exit code.
    */
-  protected function play(string $workingDirectory, ?string $troop, OutputInterface $output): int
+  protected function play(string $workingDirectory, ?string $troop, string $rendererId, OutputInterface $output): int
   {
     $previousDirectory = getcwd();
 
@@ -531,26 +596,33 @@ class BattleCommand extends Command
       return Command::FAILURE;
     }
 
+    // The engine reads the renderer the way `play` hands it to the game,
+    // from the environment, here for the arena alone.
+    $variable = GameLaunchCommandBuilder::RENDERER_ENVIRONMENT_VARIABLE;
+    $previousRenderer = getenv($variable);
+    putenv("{$variable}={$rendererId}");
+
     try {
-      // The arena opens on its list of troops; naming one skips straight to
-      // that fight.
-      new Game(
-        $this->projectName($workingDirectory),
-        options: [
-          'starting_scene' => ArenaScene::class,
-          'arena_troop' => $troop ?? '',
-        ]
-      )->run();
+      $this->runArena($this->projectName($workingDirectory), $troop ?? '');
     } catch (Throwable $throwable) {
-      @chdir($previousDirectory ?: '.');
       $output->writeln('<error>The arena could not start: ' . $throwable->getMessage() . '</error>');
 
       return Command::FAILURE;
+    } finally {
+      putenv($previousRenderer === false ? $variable : "{$variable}={$previousRenderer}");
+      @chdir($previousDirectory ?: '.');
     }
 
-    @chdir($previousDirectory ?: '.');
-
     return Command::SUCCESS;
+  }
+
+  /** Runs the arena, which opens on its list of troops; naming one skips straight to that fight. */
+  protected function runArena(string $projectName, string $troop): void
+  {
+    new Game($projectName, options: [
+      'starting_scene' => ArenaScene::class,
+      'arena_troop' => $troop,
+    ])->run();
   }
 
   /**
