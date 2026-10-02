@@ -142,6 +142,7 @@ class BattleCommand extends Command
       // One setup for both: the party played with and the party simulated.
       $setup = $this->createSetup((array) $input->getOption('member'));
       if (! $playing) {
+        $this->refuseUnsimulatedLoadouts($setup);
         $party = $setup->createParty($this->getActorStore(), $this->getItemStore());
         $troops = $this->loadTroops($input->getOption('troop'));
       }
@@ -727,8 +728,14 @@ class BattleCommand extends Command
         $problems[] = sprintf("--member %s: this project's engine cannot set a member's commands, skills or summons; update its engine.", $option->actor);
         continue;
       }
-      $setupMembers[] = new BattleTestMember($actorId, $level, $equipment,
-        $this->resolveCommands($option, $problems), $this->resolveSkills($option, $problems), $this->resolveSummons($option, $problems));
+      $known = count($problems);
+      $commands = $this->resolveCommands($option, $problems);
+      $skills = $this->resolveSkills($option, $problems);
+      $summons = $this->resolveSummons($option, $problems);
+      // A member whose loadout does not resolve is not built; its problems are all reported.
+      if (count($problems) === $known) {
+        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, $commands, $skills, $summons);
+      }
     }
     $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers);
     $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
@@ -737,6 +744,27 @@ class BattleCommand extends Command
     }
 
     return $setup;
+  }
+
+  /**
+   * Refuses a test loadout in a simulation, which would report numbers that
+   * never used it: the simulator has every battler attack, so commands,
+   * skills and summons change nothing there.
+   *
+   * @throws InvalidArgumentException When a member carries a loadout.
+   */
+  protected function refuseUnsimulatedLoadouts(BattleTestSetup $setup): void
+  {
+    foreach ($setup->members as $member) {
+      if (($member->commands ?? null) !== null || ($member->skills ?? []) !== [] || ($member->summons ?? []) !== []) {
+        throw new InvalidArgumentException(sprintf(
+          '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every battler attack, so'
+          . ' its numbers would never exercise them. Leave out --runs to play the fight and use them; levels and'
+          . ' equipment still simulate.',
+          $member->actorId,
+        ));
+      }
+    }
   }
 
   /**

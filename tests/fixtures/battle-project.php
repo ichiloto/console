@@ -39,6 +39,32 @@ function writeBattleTestProject(): string
     return $root;
 }
 
+/**
+ * Gives the project a battle test loadout to grant: an ability and a spell,
+ * and a story-gated summon only Hero may hold.
+ */
+function writeBattleLoadoutSources(string $root): void
+{
+    file_put_contents($root . '/assets/Data/abilities.php', <<<'PHP'
+    <?php
+    use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+    return [new SpecialSkill('Test Strike', '', '', 2, 0), new SpecialSkill('Test Call', '', '', 4, 0)];
+    PHP);
+    file_put_contents($root . '/assets/Data/magic.php', <<<'PHP'
+    <?php
+    use Ichiloto\Engine\Entities\Skills\MagicSkill;
+    return [new MagicSkill('Test Flame', '', '', 3, 0)];
+    PHP);
+    $directory = $root . '/assets/Cutscenes/Summons/test-call';
+    mkdir($directory, 0o777, true);
+    file_put_contents($directory . '/test-call.data.php', '<?php return ' . var_export([
+        'id' => 'test-call', 'name' => 'Test Call', 'linkedActionId' => 'Test Call',
+        'availability' => ['conditions' => [['type' => 'event', 'name' => 'unearned_story_unlock']]],
+        'wielders' => ['mode' => 'characters', 'characters' => ['Hero'], 'tenancy' => 'exclusive'],
+    ], true) . ";\n");
+    file_put_contents($directory . '/test-call.timeline.php', "<?php return ['fps' => 12, 'lengthFrames' => 2, 'tracks' => [], 'cues' => []];\n");
+}
+
 function removeBattleTestProject(string $root): void
 {
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),

@@ -71,6 +71,7 @@ function runBattleMembers(string $project, array $members, array $options = []):
 }
 
 $project = writeBattleTestProject();
+writeBattleLoadoutSources($project);
 
 try {
     [$command, $status] = runBattleMembers($project, []);
@@ -101,6 +102,32 @@ try {
         assertBattleMembers($status === Command::INVALID
             && str_contains($display, "this project's engine cannot set a member's commands, skills or summons; update its engine."),
             'an engine without test loadouts says so instead of ignoring them');
+    } else {
+        [$command, $status] = runBattleMembers($project, ['Hero:5,Commands=skill|Magic|summon,Skills=Test Strike|Test Flame,Summons=test-call', 'mage']);
+        $hero = $command->setup?->members[0];
+        assertBattleMembers($status === Command::SUCCESS
+            && array_map(static fn($type): string => $type->value, $hero?->commands ?? []) === ['skill', 'magic', 'summon']
+            && $hero?->skills === ['Test Strike', 'Test Flame'] && $hero?->summons === ['test-call']
+            && $command->setup?->members[1]->commands === null,
+            'Commands, Skills and Summons reach the battle test setup, resolved by id or label');
+
+        [$command, $status, $display] = runBattleMembers($project, ['Hero,Commands=dance,Skills=test flame|Nothing,Summons=nowhere']);
+        assertBattleMembers($status === Command::INVALID && $command->setup === null
+            && str_contains($display, '--member Hero: there is no command dance (commands: attack, skill, magic, summon, item, guard, escape).')
+            && str_contains($display, '--member Hero: the project has no skill test flame (did you mean Test Flame?).')
+            && str_contains($display, '--member Hero: the project has no skill Nothing.')
+            && str_contains($display, '--member Hero: the project has no summon nowhere (summons: test-call).'),
+            'every unknown command, skill and summon is named before a battle starts');
+
+        [$command, $status] = runBattleMembers($project, ['Mage,Summons=test-call']);
+        assertBattleMembers($status === Command::INVALID && $command->setup === null,
+            "the engine refuses a summon the member may not hold, rather than granting it");
+
+        [, $status, $display] = runBattleMembers($project, ['Hero,Skills=Test Strike'], ['--runs' => '2']);
+        assertBattleMembers($status === Command::INVALID
+            && str_contains($display, '--runs cannot use Commands, Skills or Summons')
+            && str_contains($display, 'Leave out --runs to play the fight and use them'),
+            '--runs refuses a loadout its attack-only simulator would never use');
     }
 
     [, $status, $display] = runBattleMembers($project, ['ghost'], ['--runs' => '2']);
