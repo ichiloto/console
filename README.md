@@ -162,12 +162,27 @@ Every new project also gets a generated `assets/Graphics/System/title.txt`, so t
 
 ### Balancing a fight
 
-`ichiloto battle` opens the arena so you can play a troop. Give it a run
-count instead and it simulates the fight repeatedly and reports what the
-fight *is*:
+`ichiloto battle` is a battle test, as in RPG Maker: it opens the arena so you
+can set up a party and play a troop. Every fight starts fresh from the setup,
+with a new party holding 99 of each item and a new troop. In the arena, go down
+from the troop list into the party to change each member's actor, level and
+equipment.
+
+The party can also be set up on the command line, one `--member` per member
+(up to four), as `Actor[:level][,Slot=item...]`; actors and items go by id or
+name. Without `--member` it is the starting party. Anything the party cannot be
+built from is refused, every problem named, before a battle starts:
 
 ```bash
-ichiloto battle --troop "Bat x 2" --runs 100
+ichiloto battle --member "Kaelion:20,Weapon=Iron Sword" --member Liora:18 --troop "Great Wolf"
+```
+
+Choose the renderer as `ichiloto play` does, with `--renderer` or
+`--gpui-renderer`. Give it a run count instead and it simulates the fight
+repeatedly, with the same party, and reports what the fight *is*:
+
+```bash
+ichiloto battle --member Kaelion:20 --troop "Bat x 2" --runs 100
 ```
 
 The report opens with the party as fought — each member's level, what each
@@ -251,7 +266,6 @@ The curated `--style` options are tuned for Ichiloto's house look, while `--font
 
 - `ichiloto edit` and `ichiloto play` expect to be run inside a valid Ichiloto project directory containing `ichiloto.json`.
 - Both commands prefer `tmux` when it is available and the session is interactive, then fall back to direct launch when it is not.
-- `ichiloto battle` is not a full battle runner yet; it is still a placeholder command.
 
 ## Architecture
 

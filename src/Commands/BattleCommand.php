@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Battle\BattleMemberOption;
 use Ichiloto\Console\Battle\ParticipantSnapshot;
 use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
@@ -16,6 +17,8 @@ use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
+use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
+use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
 use Ichiloto\Engine\Battle\Simulation\SimulationReport;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
@@ -26,10 +29,12 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -77,6 +82,9 @@ class BattleCommand extends Command
       ->addOption('troop', 't', InputOption::VALUE_REQUIRED, 'The troop to fight. Without it the arena opens on the list.')
       ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'Simulate this many battles instead of playing one.')
       ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50')
+      ->addOption('member', 'm', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+        sprintf('A party member, as Actor[:level][,Slot=item...]; repeat for each, up to %d. Without it, the starting party.',
+          class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
       ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
         sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
       ->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Play the battle in the GPUI renderer.');
@@ -98,9 +106,59 @@ class BattleCommand extends Command
       return Command::FAILURE;
     }
 
+    if (! class_exists(BattleTestSetup::class)) {
+      $output->writeln('<error>This project\'s engine has no battle test setup; update its engine to use ichiloto battle.</error>');
+
+      return Command::FAILURE;
+    }
+
+    $playing = $input->getOption('runs') === null;
+
+    // A simulation draws nothing, so a renderer is a mistake to point out.
+    if (! $playing && ($input->getOption('renderer') !== null || (bool) $input->getOption('gpui-renderer'))) {
+      $output->writeln('A renderer applies to playing a battle, not to simulating one with --runs.');
+
+      return Command::INVALID;
+    }
+
+    $previousDirectory = getcwd();
+
+    // The engine's asset loading is relative to the working directory, so the
+    // project's is borrowed for the read and given back afterwards.
+    if (! @chdir($workingDirectory)) {
+      $output->writeln('<error>Could not enter the project directory.</error>');
+
+      return Command::FAILURE;
+    }
+
+    $party = null;
+    $troops = [];
+
+    try {
+      $this->registerProjectStores();
+      // One setup for both: the party played with and the party simulated.
+      $setup = $this->createSetup((array) $input->getOption('member'));
+      if (! $playing) {
+        $party = $setup->createParty($this->getActorStore(), $this->getItemStore());
+        $troops = $this->loadTroops($input->getOption('troop'));
+      }
+    } catch (InvalidArgumentException $invalid) {
+      $output->writeln('<error>' . OutputFormatter::escape($invalid->getMessage()) . '</error>');
+      @chdir($previousDirectory ?: '.');
+
+      return Command::INVALID;
+    } catch (Throwable $throwable) {
+      $output->writeln('<error>The project could not be read: ' . $throwable->getMessage() . '</error>');
+      @chdir($previousDirectory ?: '.');
+
+      return Command::FAILURE;
+    }
+
+    @chdir($previousDirectory ?: '.');
+
     // Playing the fight is the point; simulating it is what you do once you
     // have played it and want to know what it does a hundred times over.
-    if ($input->getOption('runs') === null) {
+    if ($playing) {
       $rendererOption = $input->getOption('renderer');
       if ($rendererOption !== null && ! is_string($rendererOption)) {
         $output->writeln('The renderer option must be a renderer ID.');
@@ -120,40 +178,10 @@ class BattleCommand extends Command
       }
       $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
 
-      return $this->play($workingDirectory, $input->getOption('troop'), $renderer->id, $output);
+      return $this->play($workingDirectory, $input->getOption('troop'), $renderer->id, $setup, $output);
     }
 
-    // A simulation draws nothing, so a renderer is a mistake to point out.
-    if ($input->getOption('renderer') !== null || (bool) $input->getOption('gpui-renderer')) {
-      $output->writeln('A renderer applies to playing a battle, not to simulating one with --runs.');
-
-      return Command::INVALID;
-    }
-
-    $previousDirectory = getcwd();
-
-    // The engine's asset loading is relative to the working directory, so the
-    // project's is borrowed for the read and given back afterwards.
-    if (! @chdir($workingDirectory)) {
-      $output->writeln('<error>Could not enter the project directory.</error>');
-
-      return Command::FAILURE;
-    }
-
-    try {
-      $this->registerProjectStores();
-      $party = $this->loadParty();
-      $troops = $this->loadTroops($input->getOption('troop'));
-    } catch (Throwable $throwable) {
-      $output->writeln('<error>The project could not be read: ' . $throwable->getMessage() . '</error>');
-      @chdir($previousDirectory ?: '.');
-
-      return Command::FAILURE;
-    }
-
-    @chdir($previousDirectory ?: '.');
-
-    if ($troops === []) {
+    if ($troops === [] || ! $party instanceof Party) {
       $output->writeln('<error>No troops to fight.</error>');
 
       return Command::FAILURE;
@@ -586,7 +614,8 @@ class BattleCommand extends Command
    * @param OutputInterface $output Where to report a failure.
    * @return int The exit code.
    */
-  protected function play(string $workingDirectory, ?string $troop, string $rendererId, OutputInterface $output): int
+  protected function play(string $workingDirectory, ?string $troop, string $rendererId, BattleTestSetup $setup,
+    OutputInterface $output): int
   {
     $previousDirectory = getcwd();
 
@@ -603,7 +632,7 @@ class BattleCommand extends Command
     putenv("{$variable}={$rendererId}");
 
     try {
-      $this->runArena($this->projectName($workingDirectory), $troop ?? '');
+      $this->runArena($this->projectName($workingDirectory), $troop ?? '', $setup);
     } catch (Throwable $throwable) {
       $output->writeln('<error>The arena could not start: ' . $throwable->getMessage() . '</error>');
 
@@ -616,13 +645,86 @@ class BattleCommand extends Command
     return Command::SUCCESS;
   }
 
-  /** Runs the arena, which opens on its list of troops; naming one skips straight to that fight. */
-  protected function runArena(string $projectName, string $troop): void
+  private function getActorStore(): ActorStore
+  {
+    $store = ConfigStore::get(ActorStore::class);
+
+    return $store instanceof ActorStore ? $store : throw new \RuntimeException('The project\'s actors could not be loaded.');
+  }
+
+  private function getItemStore(): ItemStore
+  {
+    $store = ConfigStore::get(ItemStore::class);
+
+    return $store instanceof ItemStore ? $store : throw new \RuntimeException('The project\'s items could not be loaded.');
+  }
+
+  /**
+   * Runs the arena with the setup, which opens on its list of troops;
+   * naming one skips straight to that fight.
+   */
+  protected function runArena(string $projectName, string $troop, BattleTestSetup $setup): void
   {
     new Game($projectName, options: [
       'starting_scene' => ArenaScene::class,
       'arena_troop' => $troop,
+      ArenaScene::SETUP_OPTION => $setup,
     ])->run();
+  }
+
+  /**
+   * The battle test setup the --member options describe, or the starting
+   * party without them. Actors and items resolve by id or name; a member
+   * without a level takes its actor's authored level.
+   *
+   * @param list<string> $members The --member values.
+   * @throws InvalidArgumentException Naming every problem, before any battle starts.
+   */
+  protected function createSetup(array $members): BattleTestSetup
+  {
+    $actors = $this->getActorStore();
+    $items = $this->getItemStore();
+    if ($members === []) {
+      return BattleTestSetup::getFromStartingParty($actors);
+    }
+    if (count($members) > BattleTestSetup::MAX_MEMBERS) {
+      throw new InvalidArgumentException(sprintf('A battle test party has at most %d members; %d were given.',
+        BattleTestSetup::MAX_MEMBERS, count($members)));
+    }
+
+    $problems = [];
+    $setupMembers = [];
+    foreach ($members as $value) {
+      try {
+        $option = BattleMemberOption::parse(strval($value));
+      } catch (InvalidArgumentException $invalid) {
+        $problems[] = $invalid->getMessage();
+        continue;
+      }
+      $actorId = $actors->canonicalId($option->actor);
+      if ($actorId === null) {
+        $problems[] = sprintf('--member %s: the project has no such actor (its actors: %s).', $option->actor, implode(', ', $actors->getActorIds()));
+        continue;
+      }
+      $equipment = [];
+      foreach ($option->equipment as $slot => $reference) {
+        $item = $reference === null ? null : $items->get($reference);
+        if ($reference !== null && $item === null) {
+          $problems[] = sprintf('--member %s: the project has no item %s.', $option->actor, $reference);
+          continue;
+        }
+        $equipment[$slot] = $item?->id;
+      }
+      $setupMembers[] = new BattleTestMember($actorId, $option->level ?? $actors->require($actorId, 'ichiloto battle')->createCharacter()->level,
+        $equipment);
+    }
+    $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers);
+    $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
+    if ($problems !== [] || $setup === null) {
+      throw new InvalidArgumentException("The battle test party cannot be set up:\n" . implode("\n", $problems));
+    }
+
+    return $setup;
   }
 
   /**
@@ -748,34 +850,13 @@ class BattleCommand extends Command
       ConfigStore::put(ItemStore::class, new ItemStore());
     }
 
+    if (! ConfigStore::has(ActorStore::class)) {
+      ConfigStore::put(ActorStore::class, new ActorStore());
+    }
+
     if (! ConfigStore::has(EnemyStore::class)) {
       ConfigStore::put(EnemyStore::class, new EnemyStore());
     }
-  }
-
-  /**
-   * Builds the project's starting party.
-   *
-   * @return Party The party.
-   */
-  protected function loadParty(): Party
-  {
-    $system = asset('Data/system.php', true);
-    $members = [];
-
-    foreach ((array) ($system['startingParty'] ?? []) as $member) {
-      $data = asset("Data/Actors/{$member}.php", true);
-
-      if (is_array($data) && isset($data['data'])) {
-        $members[] = $data['data'];
-      }
-    }
-
-    if ($members === []) {
-      throw new \RuntimeException('The project has no starting party.');
-    }
-
-    return Party::fromArray($members);
   }
 
   /**
