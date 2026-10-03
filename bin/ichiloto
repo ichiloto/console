@@ -14,6 +14,7 @@ if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
 
 use Ichiloto\Console\Commands\BattleCommand;
 use Ichiloto\Console\Commands\EditCommand;
+use Ichiloto\Console\Commands\EditHostCommand;
 use Ichiloto\Console\Commands\GenerateActorCommand;
 use Ichiloto\Console\Commands\GenerateFigletCommand;
 use Ichiloto\Console\Commands\GenerateMapCommand;
@@ -37,6 +38,7 @@ function bootstrap(): int
       new PlayCommand(),
       new BattleCommand(),
       new EditCommand(),
+      new EditHostCommand(),
       new GenerateMapCommand(),
       new GenerateActorCommand(),
       new GenerateFigletCommand(),

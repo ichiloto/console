@@ -49,6 +49,7 @@
             "@php tests/renderer-install.php",
             "@php tests/renderer-preparation.php",
             "@php tests/generate-map.php",
+            "@php tests/gui-editor-launch.php",
             "@php tests/new-project-save-compatibility.php",
             "@php tests/generate-actor-identity.php",
             "@php tests/project-startup-identity.php",
