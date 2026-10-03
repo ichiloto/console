@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Console\Support\EditorProjectBootstrap;
 use Ichiloto\Console\Support\GuiEditorLocator;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -50,5 +51,15 @@ try {
     }
     exec('rm -rf ' . escapeshellarg($workspace));
 }
+
+// Both editors playtest through the console that opened them, unless the author named another.
+putenv(EditorProjectBootstrap::CONSOLE_BINARY_ENVIRONMENT);
+EditorProjectBootstrap::nameConsoleBinary();
+assertGuiLaunch(getenv(EditorProjectBootstrap::CONSOLE_BINARY_ENVIRONMENT) === EditorProjectBootstrap::getConsoleBinary(), 'the editor is told which console opened it');
+assertGuiLaunch(is_file(EditorProjectBootstrap::getConsoleBinary()), 'the named console exists');
+putenv(EditorProjectBootstrap::CONSOLE_BINARY_ENVIRONMENT . '=/elsewhere/ichiloto');
+EditorProjectBootstrap::nameConsoleBinary();
+assertGuiLaunch(getenv(EditorProjectBootstrap::CONSOLE_BINARY_ENVIRONMENT) === '/elsewhere/ichiloto', 'a console the author named is kept');
+putenv(EditorProjectBootstrap::CONSOLE_BINARY_ENVIRONMENT);
 
 echo "gui-editor-launch: ok\n";

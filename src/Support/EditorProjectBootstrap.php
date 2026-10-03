@@ -11,11 +11,33 @@ namespace Ichiloto\Console\Support;
  */
 final class EditorProjectBootstrap
 {
+    /** The variable the editor's playtest reads to find the console that plays the game. */
+    public const string CONSOLE_BINARY_ENVIRONMENT = 'ICHILOTO_CONSOLE_BIN';
+
     /** Loads the engine and registers the project's classes. */
     public static function prepare(string $projectDirectory): void
     {
         load_engine_autoloader($projectDirectory);
         self::registerProjectAutoload($projectDirectory);
+        self::nameConsoleBinary();
+    }
+
+    /**
+     * Tells the editor which console opened it, so its playtest plays with
+     * the same console rather than another one found on the project or the
+     * PATH. An author who names one keeps it.
+     */
+    public static function nameConsoleBinary(): void
+    {
+        if (getenv(self::CONSOLE_BINARY_ENVIRONMENT) === false) {
+            putenv(self::CONSOLE_BINARY_ENVIRONMENT . '=' . self::getConsoleBinary());
+        }
+    }
+
+    /** This console's entry point. */
+    public static function getConsoleBinary(): string
+    {
+        return dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'ichiloto';
     }
 
     /** Registers the opened project's PSR-4 autoload rules for editor asset inspection. */
