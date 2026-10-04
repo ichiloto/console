@@ -45,16 +45,15 @@ function writeBattleTestProject(): string
  */
 function writeBattleLoadoutSources(string $root): void
 {
-    file_put_contents($root . '/assets/Data/abilities.php', <<<'PHP'
-    <?php
-    use Ichiloto\Engine\Entities\Skills\SpecialSkill;
-    return [new SpecialSkill('Test Strike', '', '', 2, 0), new SpecialSkill('Test Call', '', '', 4, 0)];
-    PHP);
-    file_put_contents($root . '/assets/Data/magic.php', <<<'PHP'
-    <?php
-    use Ichiloto\Engine\Entities\Skills\MagicSkill;
-    return [new MagicSkill('Test Flame', '', '', 3, 0)];
-    PHP);
+    mkdir($root . '/assets/Data/Skills', 0o777, true);
+    foreach ([['special', 'Test Strike', 2], ['special', 'Test Call', 4], ['magic', 'Test Flame', 3]] as $number => [$kind, $name, $cost]) {
+        file_put_contents(sprintf('%s/assets/Data/Skills/%04d-%s.php', $root, $number + 1, strtolower(str_replace(' ', '-', $name))),
+            "<?php\nreturn ['class' => \\Ichiloto\\Engine\\Entities\\Skills\\Skill::class, 'data' => " . var_export([
+                'kind' => $kind, 'name' => $name, 'description' => '', 'icon' => '', 'cost' => $cost, 'cooldown' => 0, 'occasion' => 'Always',
+                'scope' => ['side' => 'Enemy', 'number' => 'One', 'status' => 'Alive'],
+                'invocation' => ['message' => '$1 casts $2!', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 10], 'effects' => [],
+            ], true) . "];\n");
+    }
     $directory = $root . '/assets/Cutscenes/Summons/test-call';
     mkdir($directory, 0o777, true);
     file_put_contents($directory . '/test-call.data.php', '<?php return ' . var_export([

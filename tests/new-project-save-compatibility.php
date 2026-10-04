@@ -171,6 +171,25 @@ try {
         failScaffolderTest('The new project does not load the enemy records in Enemies/.');
     }
 
+    // Skills are records in Skills/, which skills.php loads.
+    $skillsPath = $projectRoot . '/assets/Data/skills.php';
+    chdir($projectRoot);
+    try {
+        $startingSkills = require $skillsPath;
+        mkdir($projectRoot . '/assets/Data/Skills');
+        file_put_contents($projectRoot . '/assets/Data/Skills/0001-spark.php', "<?php\n\nuse Ichiloto\\Engine\\Entities\\Skills\\Skill;\n\nreturn ['class' => Skill::class, 'data' => "
+            . var_export(['kind' => 'magic', 'name' => 'Spark', 'description' => '', 'icon' => '', 'cost' => 2, 'cooldown' => 0, 'occasion' => 'Always',
+                'scope' => ['side' => 'Enemy', 'number' => 'One', 'status' => 'Alive'],
+                'invocation' => ['message' => '$1 casts $2!', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 10], 'effects' => []], true) . "];\n");
+        $skills = require $skillsPath;
+    } finally {
+        chdir($workingDirectory);
+    }
+    if ($startingSkills !== [] || array_map(static fn(object $skill): string => $skill->name, $skills) !== ['Spark']
+        || is_file($projectRoot . '/assets/Data/abilities.php') || is_file($projectRoot . '/assets/Data/magic.php')) {
+        failScaffolderTest('The new project does not load the skill records in Skills/.');
+    }
+
     $legacySource = str_replace("    'id' => 'Hero',\n", '', (string) file_get_contents($heroPath), $removedIds);
     if ($removedIds !== 1) {
         failScaffolderTest('The test could not create a legacy actor without an id.');

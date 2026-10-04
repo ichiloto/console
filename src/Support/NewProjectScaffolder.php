@@ -59,10 +59,6 @@ final class NewProjectScaffolder
             $this->renderGitIgnore(),
         );
         $files[] = $this->writeFile(
-            Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'abilities.php'),
-            $this->renderPhpArrayFile([]),
-        );
-        $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'animations.php'),
             $this->renderPhpArrayFile([]),
         );
@@ -79,12 +75,8 @@ final class NewProjectScaffolder
             $this->renderPhpArrayFile([]),
         );
         $files[] = $this->writeFile(
-            Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'magic.php'),
-            $this->renderPhpArrayFile([]),
-        );
-        $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'skills.php'),
-            $this->renderPhpArrayFile([]),
+            $this->renderSkillsBarrel(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'save-compatibility.php'),
@@ -666,6 +658,14 @@ PHP;
     /**
      * @param array<string, mixed>|list<mixed> $payload
      */
+    /** Skills are authored one record per numbered file in Skills/; this file loads them. */
+    private function renderSkillsBarrel(): string
+    {
+        return "<?php\n\nuse Ichiloto\\Engine\\Entities\\Skills\\SkillCatalog;\n\n"
+            . "// Skills are authored one per file in Skills/, numbered in the order menus list them.\n"
+            . "return SkillCatalog::loadProjectSkills(dirname(__DIR__));\n";
+    }
+
     /** Enemies are authored one record per file in Enemies/; this file loads them. */
     private function renderEnemiesBarrel(): string
     {
