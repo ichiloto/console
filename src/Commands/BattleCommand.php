@@ -13,6 +13,7 @@ use Ichiloto\Console\Support\SourceRendererUpdater;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use InvalidArgumentException;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
@@ -88,6 +89,8 @@ class BattleCommand extends Command
       ->addOption('member', 'm', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
         sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]; repeat for each, up to %d. Without it, the starting party.',
           class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
+      ->addOption('arena', 'a', InputOption::VALUE_REQUIRED,
+        'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.')
       ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
         sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
       ->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Play the battle in the GPUI renderer.');
@@ -124,6 +127,14 @@ class BattleCommand extends Command
       return Command::INVALID;
     }
 
+    $arena = $input->getOption('arena');
+
+    if ($arena !== null && ! $playing) {
+      $output->writeln('An arena applies to playing a battle, not to simulating one with --runs.');
+
+      return Command::INVALID;
+    }
+
     $previousDirectory = getcwd();
 
     // The engine's asset loading is relative to the working directory, so the
@@ -141,6 +152,9 @@ class BattleCommand extends Command
       $this->registerProjectStores();
       // One setup for both: the party played with and the party simulated.
       $setup = $this->createSetup((array) $input->getOption('member'));
+      if ($arena !== null) {
+        $setup = $this->chooseArena($setup, strval($arena));
+      }
       if (! $playing) {
         $this->refuseUnsimulatedLoadouts($setup);
         $party = $setup->createParty($this->getActorStore(), $this->getItemStore());
@@ -177,6 +191,12 @@ class BattleCommand extends Command
         );
       } catch (InvalidArgumentException $exception) {
         $output->writeln($exception->getMessage());
+
+        return Command::INVALID;
+      }
+      // Only a graphical renderer draws an arena; the terminal draws the battle its own way.
+      if ($arena !== null && $renderer->id === 'terminal') {
+        $output->writeln('An arena is drawn by a graphical renderer; the terminal renderer draws none. Choose one with --renderer.');
 
         return Command::INVALID;
       }
@@ -684,6 +704,34 @@ class BattleCommand extends Command
    * @param list<string> $members The --member values.
    * @throws InvalidArgumentException Naming every problem, before any battle starts.
    */
+  /**
+   * The setup fighting in one of the battle presentation's arenas, named by
+   * key.
+   *
+   * @throws InvalidArgumentException When the project has no such arena, or no battle presentation at all.
+   */
+  protected function chooseArena(BattleTestSetup $setup, string $arena): BattleTestSetup
+  {
+    if (! method_exists($setup, 'withArena')) {
+      throw new InvalidArgumentException('This project\'s engine cannot choose a battle test arena; update its engine to use --arena.');
+    }
+
+    $catalog = BattlePresentationCatalog::load('assets');
+
+    if ($catalog === null) {
+      throw new InvalidArgumentException('--arena: the project declares no battle presentation, so it has no arenas.');
+    }
+
+    $choices = $catalog->getArenaChoices();
+
+    if (! array_key_exists($arena, $choices)) {
+      throw new InvalidArgumentException(sprintf('--arena: the project has no arena %s (its arenas: %s).', $arena,
+        implode(', ', array_map(static fn(string $key, string $name): string => sprintf('%s (%s)', $key, $name), array_keys($choices), $choices))));
+    }
+
+    return $setup->withArena($arena);
+  }
+
   protected function createSetup(array $members): BattleTestSetup
   {
     $actors = $this->getActorStore();

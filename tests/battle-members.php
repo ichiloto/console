@@ -133,6 +133,43 @@ try {
     [, $status, $display] = runBattleMembers($project, ['ghost'], ['--runs' => '2']);
     assertBattleMembers($status === Command::INVALID && str_contains($display, 'no such actor'),
         '--runs refuses the same setup problems before simulating');
+
+    if (method_exists(BattleTestSetup::class, 'withArena')) {
+        [$command, $status, $display] = runBattleMembers($project, [], ['--arena' => 'arena.lake', '--renderer' => 'gpui']);
+        assertBattleMembers($status === Command::INVALID && $command->setup === null
+            && str_contains($display, '--arena: the project declares no battle presentation, so it has no arenas.'),
+            'an arena is refused in a project without a battle presentation');
+
+        @mkdir($project . '/assets/Data/Presentation', 0o777, true);
+        file_put_contents($project . '/assets/Data/Presentation/battle.php', <<<'PHP'
+<?php
+use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+
+$arena = static fn(string $name): BattleArenaDefinition => new BattleArenaDefinition($name,
+    new CanvasImage('arena', 'Graphics/Battlebacks/' . $name . '.png', new CanvasRectangle(0, 0, 1350, 720)));
+return new BattlePresentationCatalog(arenas: ['arena.road' => $arena('Road'), 'arena.lake' => $arena('Lake')], actors: [], enemies: []);
+PHP);
+
+        [$command, $status] = runBattleMembers($project, [], ['--arena' => 'arena.lake', '--renderer' => 'gpui']);
+        assertBattleMembers($status === Command::SUCCESS && $command->setup?->arena === 'arena.lake',
+            '--arena sets the arena the battle test fights in');
+
+        [$command, $status, $display] = runBattleMembers($project, [], ['--arena' => 'arena.moon', '--renderer' => 'gpui']);
+        assertBattleMembers($status === Command::INVALID && $command->setup === null
+            && str_contains($display, '--arena: the project has no arena arena.moon (its arenas: arena.road (Road), arena.lake (Lake)).'),
+            'an arena the presentation does not declare is refused, naming the ones it does');
+
+        [, $status, $display] = runBattleMembers($project, [], ['--arena' => 'arena.lake']);
+        assertBattleMembers($status === Command::INVALID && str_contains($display, 'the terminal renderer draws none'),
+            'the terminal renderer refuses an arena it would not draw');
+
+        [, $status, $display] = runBattleMembers($project, [], ['--arena' => 'arena.lake', '--runs' => '2']);
+        assertBattleMembers($status === Command::INVALID && str_contains($display, 'An arena applies to playing a battle'),
+            '--runs refuses an arena nothing would draw');
+    }
 } finally {
     removeBattleTestProject($project);
 }
