@@ -72,7 +72,7 @@ final class NewProjectScaffolder
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'enemies.php'),
-            $this->renderPhpArrayFile([]),
+            $this->renderEnemiesBarrel(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'items.php'),
@@ -666,6 +666,14 @@ PHP;
     /**
      * @param array<string, mixed>|list<mixed> $payload
      */
+    /** Enemies are authored one record per file in Enemies/; this file loads them. */
+    private function renderEnemiesBarrel(): string
+    {
+        return "<?php\n\nuse Ichiloto\\Engine\\Entities\\Enemies\\EnemyCatalog;\n\n"
+            . "// Enemies are authored one per file in Enemies/.\n"
+            . "return EnemyCatalog::loadProjectEnemies(dirname(__DIR__));\n";
+    }
+
     private function renderPhpArrayFile(array $payload): string
     {
         return "<?php\n\nreturn " . $this->exportPhpValue($payload) . ";\n";

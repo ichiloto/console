@@ -150,6 +150,27 @@ try {
         failScaffolderTest('The freshly scaffolded project does not validate: ' . $freshValidation['output']);
     }
 
+    // Enemies are records in Enemies/, which enemies.php loads.
+    $enemiesPath = $projectRoot . '/assets/Data/enemies.php';
+    $workingDirectory = (string) getcwd();
+    chdir($projectRoot);
+    try {
+        $startingEnemies = require $enemiesPath;
+        mkdir($projectRoot . '/assets/Data/Enemies');
+        mkdir($projectRoot . '/assets/Graphics/Enemies', 0777, true);
+        file_put_contents($projectRoot . '/assets/Graphics/Enemies/slime.txt', "(~)\n");
+        file_put_contents($projectRoot . '/assets/Data/Enemies/slime.php', "<?php\n\nuse Ichiloto\\Engine\\Entities\\Enemies\\Enemy;\n\nreturn ['class' => Enemy::class, 'data' => "
+            . var_export(['name' => 'Slime', 'level' => 1, 'imagePath' => 'slime', 'rewards' => ['experience' => 1, 'gold' => 1], 'stats' => [
+                'maxHp' => 10, 'maxMp' => 0, 'attack' => 3, 'defence' => 2, 'magicAttack' => 1, 'magicDefence' => 1, 'speed' => 2, 'grace' => 1, 'evasion' => 1,
+            ]], true) . "];\n");
+        $enemies = require $enemiesPath;
+    } finally {
+        chdir($workingDirectory);
+    }
+    if ($startingEnemies !== [] || array_map(static fn(object $enemy): string => $enemy->name, $enemies) !== ['Slime']) {
+        failScaffolderTest('The new project does not load the enemy records in Enemies/.');
+    }
+
     $legacySource = str_replace("    'id' => 'Hero',\n", '', (string) file_get_contents($heroPath), $removedIds);
     if ($removedIds !== 1) {
         failScaffolderTest('The test could not create a legacy actor without an id.');
