@@ -72,7 +72,7 @@ final class NewProjectScaffolder
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'items.php'),
-            $this->renderPhpArrayFile([]),
+            $this->renderItemsBarrel(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'skills.php'),
@@ -655,9 +655,6 @@ return [
 PHP;
     }
 
-    /**
-     * @param array<string, mixed>|list<mixed> $payload
-     */
     /** Skills are authored one record per numbered file in Skills/; this file loads them. */
     private function renderSkillsBarrel(): string
     {
@@ -674,6 +671,21 @@ PHP;
             . "return EnemyCatalog::loadProjectEnemies(dirname(__DIR__));\n";
     }
 
+    /**
+     * Items, weapons and armors are authored one record per numbered file in
+     * Items/, Weapons/ and Armors/; this file loads them.
+     */
+    private function renderItemsBarrel(): string
+    {
+        return "<?php\n\nuse Ichiloto\\Engine\\Entities\\Inventory\\ItemCatalog;\n\n"
+            . "// Items, weapons and armors are authored one per file in Items/, Weapons/ and\n"
+            . "// Armors/, numbered in the order shops and menus list them.\n"
+            . "return ItemCatalog::loadProjectItems(dirname(__DIR__));\n";
+    }
+
+    /**
+     * @param array<string, mixed>|list<mixed> $payload
+     */
     private function renderPhpArrayFile(array $payload): string
     {
         return "<?php\n\nreturn " . $this->exportPhpValue($payload) . ";\n";

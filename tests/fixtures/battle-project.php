@@ -26,15 +26,15 @@ function writeBattleTestProject(): string
             ],
         ]], true) . ";\n");
     }
-    file_put_contents($root . '/assets/Data/items.php', <<<'ITEMS'
-    <?php
-    use Ichiloto\Engine\Entities\Inventory\Items\Item;
-    use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
-    return [
-        new Item('Potion', '', '', 10, id: 'item.potion'),
-        new Weapon('Iron Sword', '', '/', 50, id: 'equipment.iron-sword'),
-    ];
-    ITEMS);
+    foreach ([
+        'Items/0001-potion.php' => ['kind' => 'item', 'id' => 'item.potion', 'name' => 'Potion', 'description' => '', 'icon' => '', 'price' => 10],
+        'Weapons/0001-iron-sword.php' => ['kind' => 'weapon', 'id' => 'equipment.iron-sword', 'name' => 'Iron Sword', 'description' => '', 'icon' => '/', 'price' => 50],
+    ] as $file => $data) {
+        is_dir(dirname($root . '/assets/Data/' . $file)) || mkdir(dirname($root . '/assets/Data/' . $file), 0o777, true);
+        file_put_contents($root . '/assets/Data/' . $file, "<?php\nreturn ['class' => \\Ichiloto\\Engine\\Entities\\Inventory\\InventoryItem::class, 'data' => "
+            . var_export($data, true) . "];\n");
+    }
+    file_put_contents($root . '/assets/Data/items.php', "<?php\nreturn \\Ichiloto\\Engine\\Entities\\Inventory\\ItemCatalog::loadProjectItems(dirname(__DIR__));\n");
 
     return $root;
 }

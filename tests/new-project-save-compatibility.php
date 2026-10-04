@@ -190,6 +190,22 @@ try {
         failScaffolderTest('The new project does not load the skill records in Skills/.');
     }
 
+    // Items, weapons and armors are records in Items/, Weapons/ and Armors/, which items.php loads.
+    $itemsPath = $projectRoot . '/assets/Data/items.php';
+    chdir($projectRoot);
+    try {
+        $startingItems = require $itemsPath;
+        mkdir($projectRoot . '/assets/Data/Weapons');
+        file_put_contents($projectRoot . '/assets/Data/Weapons/0001-iron-sword.php', "<?php\n\nuse Ichiloto\\Engine\\Entities\\Inventory\\InventoryItem;\n\nreturn ['class' => InventoryItem::class, 'data' => "
+            . var_export(['kind' => 'weapon', 'id' => 'equipment.iron-sword', 'name' => 'Iron Sword', 'description' => '', 'icon' => '/', 'price' => 50, 'equipmentType' => 'Sword'], true) . "];\n");
+        $items = require $itemsPath;
+    } finally {
+        chdir($workingDirectory);
+    }
+    if ($startingItems !== [] || array_map(static fn(object $item): string => $item->id, $items) !== ['equipment.iron-sword']) {
+        failScaffolderTest('The new project does not load the inventory records in Items/, Weapons/ and Armors/.');
+    }
+
     $legacySource = str_replace("    'id' => 'Hero',\n", '', (string) file_get_contents($heroPath), $removedIds);
     if ($removedIds !== 1) {
         failScaffolderTest('The test could not create a legacy actor without an id.');
