@@ -23,6 +23,7 @@ use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
+use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Battle\Simulation\SimulationReport;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
@@ -697,14 +698,6 @@ class BattleCommand extends Command
   }
 
   /**
-   * The battle test setup the --member options describe, or the starting
-   * party without them. Actors and items resolve by id or name; a member
-   * without a level takes its actor's authored level.
-   *
-   * @param list<string> $members The --member values.
-   * @throws InvalidArgumentException Naming every problem, before any battle starts.
-   */
-  /**
    * The setup fighting in one of the battle presentation's arenas, named by
    * key.
    *
@@ -732,12 +725,24 @@ class BattleCommand extends Command
     return $setup->withArena($arena);
   }
 
+  /**
+   * The battle test setup the --member options describe, or without them the
+   * project's battle test party (its system data's battleTest, else the
+   * starting party). Either way the project's battle test arena applies
+   * unless --arena overrides it. Actors and items resolve by id or name; a
+   * member without a level takes its actor's authored level.
+   *
+   * @param list<string> $members The --member values.
+   * @throws InvalidArgumentException Naming every problem, before any battle starts.
+   */
   protected function createSetup(array $members): BattleTestSetup
   {
     $actors = $this->getActorStore();
     $items = $this->getItemStore();
+    // An older engine keeps no project battle test: the starting party it is.
+    $project = class_exists(ProjectBattleTest::class) ? ProjectBattleTest::loadFromProject() : null;
     if ($members === []) {
-      return BattleTestSetup::getFromStartingParty($actors);
+      return $project?->createSetup($actors) ?? BattleTestSetup::getFromStartingParty($actors);
     }
     if (count($members) > BattleTestSetup::MAX_MEMBERS) {
       throw new InvalidArgumentException(sprintf('A battle test party has at most %d members; %d were given.',
@@ -785,7 +790,7 @@ class BattleCommand extends Command
         $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, $commands, $skills, $summons);
       }
     }
-    $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers);
+    $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers, $project?->setup?->arena ?? $project?->arena);
     $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
     if ($problems !== [] || $setup === null) {
       throw new InvalidArgumentException("The battle test party cannot be set up:\n" . implode("\n", $problems));

@@ -169,6 +169,33 @@ PHP);
         [, $status, $display] = runBattleMembers($project, [], ['--arena' => 'arena.lake', '--runs' => '2']);
         assertBattleMembers($status === Command::INVALID && str_contains($display, 'An arena applies to playing a battle'),
             '--runs refuses an arena nothing would draw');
+
+        if (class_exists(\Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::class)) {
+            // The project keeps a battle test in its system data, as RPG Maker keeps its Battle Test party.
+            $system = $project . '/assets/Data/system.php';
+            $original = (string) file_get_contents($system);
+            file_put_contents($system, "<?php return ['title' => 'Arena Test', 'currency' => [],\n"
+                . "  'startingPositions' => ['player' => []], 'startingParty' => ['hero', 'mage'],\n"
+                . "  'battleTest' => ['troop' => 'Rats', 'arena' => 'arena.road', 'members' => [['actor' => 'mage', 'level' => 6]]]];\n");
+
+            [$command, $status] = runBattleMembers($project, [], ['--renderer' => 'gpui']);
+            assertBattleMembers($status === Command::SUCCESS
+                && array_map(static fn($member): array => [$member->actorId, $member->level], $command->setup?->members ?? []) === [['mage', 6]]
+                && $command->setup?->arena === 'arena.road',
+                "without --member, the project's battle test party and arena are set up");
+
+            [$command, $status] = runBattleMembers($project, ['hero'], ['--renderer' => 'gpui']);
+            assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'hero'
+                && $command->setup?->arena === 'arena.road',
+                "--member replaces only the project's battle test party, not its arena");
+
+            [$command, $status] = runBattleMembers($project, [], ['--arena' => 'arena.lake', '--renderer' => 'gpui']);
+            assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'mage'
+                && $command->setup?->arena === 'arena.lake',
+                "--arena replaces only the project's battle test arena, not its party");
+
+            file_put_contents($system, $original);
+        }
     }
 } finally {
     removeBattleTestProject($project);
