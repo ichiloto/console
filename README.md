@@ -194,7 +194,7 @@ other problem. Loadouts are for playing a fight: `--runs` refuses them, because
 its simulator has every battler attack and would never use them.
 
 ```bash
-ichiloto battle --member "Kaelion:20,Commands=attack|skill|summon|item,Summons=ifrit" --member "Liora:20,Skills=Burn I|Heal I" --troop "Loch Ness"
+ichiloto battle --member "Kaelion:20,Commands=attack|skill|summon|item,Summons=djin" --member "Liora:20,Skills=Burn I|Heal I" --troop "Loch Ness"
 ```
 
 Choose the renderer as `ichiloto play` does, with `--renderer` or

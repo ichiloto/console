@@ -9,7 +9,7 @@ use InvalidArgumentException;
 /**
  * One --member of ichiloto battle, as typed:
  * `Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]`,
- * for example `Liora:20,Weapon=Wooden Staff,Commands=attack|magic|summon,Skills=Burn I|Heal I,Summons=ifrit`.
+ * for example `Kaelion:20,Weapon=Wooden Sword,Commands=attack|magic|summon,Skills=Burn I|Heal I,Summons=djin`.
  *
  * The actor, items, commands, skills and summons are references for the
  * project to resolve. A slot given no item is empty. Commands replaces the
@@ -87,7 +87,7 @@ final readonly class BattleMemberOption
         $value,
         $key,
         $key,
-        match (strtolower($key)) { 'commands' => 'attack|magic|summon', 'skills' => 'Burn I|Heal I', default => 'ifrit' },
+        match (strtolower($key)) { 'commands' => 'attack|magic|summon', 'skills' => 'Burn I|Heal I', default => 'djin' },
       ));
     }
     $repeated = array_keys(array_filter(array_count_values($names), static fn(int $count): bool => $count > 1));
