@@ -373,3 +373,9 @@ stays installable everywhere.
 - Engine repository: [github.com/ichiloto/engine](https://github.com/ichiloto/engine)
 - Website repository: [github.com/ichiloto/website-v2](https://github.com/ichiloto/website-v2)
 - Console issues: [github.com/ichiloto/console/issues](https://github.com/ichiloto/console/issues)
+
+## Contributing and Git workflow
+
+Read [GIT_WORKFLOW.md](GIT_WORKFLOW.md) and install the Git guards with
+`sh scripts/install-git-guards.sh` before contributing. All changes integrate
+into `develop`; `main` is updated only by a PR from this repository's `develop`.
