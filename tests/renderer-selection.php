@@ -8,6 +8,7 @@ use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\TerminalInteractivity;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\ApplicationTester;
@@ -48,6 +49,7 @@ function rendererTestCommand(
             static fn (): bool => $outputIsTty,
         ),
         launchCommandBuilder: new GameLaunchCommandBuilder(),
+        rendererUpdateChecker: new SourceRendererUpdateChecker(locateEngine: static fn (string $project): string => $project),
     );
 }
 
@@ -417,6 +419,7 @@ mkdir($spacedProjectDirectory . '/logs', 0777, true);
 mkdir($fakeTmuxDirectory, 0777, true);
 
 $projectConfig = json_encode([
+    'format' => Ichiloto\Engine\Core\ProjectFormat::CURRENT,
     'main' => 'app/game.php',
     'debug' => ['enabled' => false, 'show' => false],
 ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
@@ -468,6 +471,7 @@ PHP;
 file_put_contents($appDirectory . '/pty-game.php', $ptyFixtureGameSource);
 
 $spacedProjectConfig = json_encode([
+    'format' => Ichiloto\Engine\Core\ProjectFormat::CURRENT,
     'main' => 'game files/game runner.php',
     'debug' => ['enabled' => false, 'show' => false],
 ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
@@ -682,6 +686,7 @@ try {
     );
 
     $observedOutputProjectConfig = json_encode([
+        'format' => Ichiloto\Engine\Core\ProjectFormat::CURRENT,
         'main' => 'app/pty-game.php',
         'debug' => ['enabled' => false, 'show' => false],
     ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . PHP_EOL;
@@ -745,7 +750,7 @@ try {
         'The failing game did not append stderr to the error log.',
     );
 
-    file_put_contents($projectDirectory . '/ichiloto.json', json_encode(['main' => 'app/missing.php'], JSON_THROW_ON_ERROR));
+    file_put_contents($projectDirectory . '/ichiloto.json', json_encode(['format' => Ichiloto\Engine\Core\ProjectFormat::CURRENT, 'main' => 'app/missing.php'], JSON_THROW_ON_ERROR));
     $result = runRendererPlayCommand(
         rendererTestCommand($neverPrompt),
         'relative-project',

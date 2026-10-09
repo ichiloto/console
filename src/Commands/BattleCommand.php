@@ -2,12 +2,28 @@
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Battle\BattleMemberOption;
 use Ichiloto\Console\Battle\ParticipantSnapshot;
+use Ichiloto\Console\Renderer\RendererRegistry;
+use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Support\GameLaunchCommandBuilder;
+use Ichiloto\Console\Support\RendererUpdateOffer;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
+use Ichiloto\Console\Support\SourceRendererUpdater;
+use Ichiloto\Console\Support\TerminalInteractivity;
+use InvalidArgumentException;
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
+use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
+use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
+use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Battle\Simulation\SimulationReport;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
@@ -18,10 +34,12 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -34,13 +52,49 @@ use Throwable;
 )]
 class BattleCommand extends Command
 {
+  private readonly RendererRegistry $rendererRegistry;
+
+  private readonly RendererSelector $rendererSelector;
+
+  private readonly TerminalInteractivity $terminalInteractivity;
+
+  private readonly RendererUpdateOffer $rendererUpdateOffer;
+
+  /**
+   * @param (callable(string, array<string, string>): (int|string))|null $rendererUpdatePrompt
+   */
+  public function __construct(
+    ?RendererRegistry $rendererRegistry = null,
+    ?RendererSelector $rendererSelector = null,
+    ?TerminalInteractivity $terminalInteractivity = null,
+    ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
+    ?SourceRendererUpdater $rendererUpdater = null,
+    ?callable $rendererUpdatePrompt = null,
+  ) {
+    $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
+    $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
+    $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
+    $this->rendererUpdateOffer = new RendererUpdateOffer($rendererUpdateChecker, $rendererUpdater,
+      $this->terminalInteractivity, $rendererUpdatePrompt);
+
+    parent::__construct();
+  }
+
   public function configure(): void
   {
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
       ->addOption('troop', 't', InputOption::VALUE_REQUIRED, 'The troop to fight. Without it the arena opens on the list.')
       ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'Simulate this many battles instead of playing one.')
-      ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50');
+      ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50')
+      ->addOption('member', 'm', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+        sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]; repeat for each, up to %d. Without it, the starting party.',
+          class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
+      ->addOption('arena', 'a', InputOption::VALUE_REQUIRED,
+        'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.')
+      ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
+        sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
+      ->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Play the battle in the GPUI renderer.');
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
@@ -59,10 +113,27 @@ class BattleCommand extends Command
       return Command::FAILURE;
     }
 
-    // Playing the fight is the point; simulating it is what you do once you
-    // have played it and want to know what it does a hundred times over.
-    if ($input->getOption('runs') === null) {
-      return $this->play($workingDirectory, $input->getOption('troop'), $output);
+    if (! class_exists(BattleTestSetup::class)) {
+      $output->writeln('<error>This project\'s engine has no battle test setup; update its engine to use ichiloto battle.</error>');
+
+      return Command::FAILURE;
+    }
+
+    $playing = $input->getOption('runs') === null;
+
+    // A simulation draws nothing, so a renderer is a mistake to point out.
+    if (! $playing && ($input->getOption('renderer') !== null || (bool) $input->getOption('gpui-renderer'))) {
+      $output->writeln('A renderer applies to playing a battle, not to simulating one with --runs.');
+
+      return Command::INVALID;
+    }
+
+    $arena = $input->getOption('arena');
+
+    if ($arena !== null && ! $playing) {
+      $output->writeln('An arena applies to playing a battle, not to simulating one with --runs.');
+
+      return Command::INVALID;
     }
 
     $previousDirectory = getcwd();
@@ -75,10 +146,26 @@ class BattleCommand extends Command
       return Command::FAILURE;
     }
 
+    $party = null;
+    $troops = [];
+
     try {
       $this->registerProjectStores();
-      $party = $this->loadParty();
-      $troops = $this->loadTroops($input->getOption('troop'));
+      // One setup for both: the party played with and the party simulated.
+      $setup = $this->createSetup((array) $input->getOption('member'));
+      if ($arena !== null) {
+        $setup = $this->chooseArena($setup, strval($arena));
+      }
+      if (! $playing) {
+        $this->refuseUnsimulatedLoadouts($setup);
+        $party = $setup->createParty($this->getActorStore(), $this->getItemStore());
+        $troops = $this->loadTroops($input->getOption('troop'));
+      }
+    } catch (InvalidArgumentException $invalid) {
+      $output->writeln('<error>' . OutputFormatter::escape($invalid->getMessage()) . '</error>');
+      @chdir($previousDirectory ?: '.');
+
+      return Command::INVALID;
     } catch (Throwable $throwable) {
       $output->writeln('<error>The project could not be read: ' . $throwable->getMessage() . '</error>');
       @chdir($previousDirectory ?: '.');
@@ -88,7 +175,38 @@ class BattleCommand extends Command
 
     @chdir($previousDirectory ?: '.');
 
-    if ($troops === []) {
+    // Playing the fight is the point; simulating it is what you do once you
+    // have played it and want to know what it does a hundred times over.
+    if ($playing) {
+      $rendererOption = $input->getOption('renderer');
+      if ($rendererOption !== null && ! is_string($rendererOption)) {
+        $output->writeln('The renderer option must be a renderer ID.');
+
+        return Command::INVALID;
+      }
+      try {
+        $renderer = $this->rendererSelector->resolve(
+          rendererOption: $rendererOption,
+          gpuiAlias: (bool) $input->getOption('gpui-renderer'),
+          canPrompt: $input->isInteractive() && $this->terminalInteractivity->supportsPrompts(),
+        );
+      } catch (InvalidArgumentException $exception) {
+        $output->writeln($exception->getMessage());
+
+        return Command::INVALID;
+      }
+      // Only a graphical renderer draws an arena; the terminal draws the battle its own way.
+      if ($arena !== null && $renderer->id === 'terminal') {
+        $output->writeln('An arena is drawn by a graphical renderer; the terminal renderer draws none. Choose one with --renderer.');
+
+        return Command::INVALID;
+      }
+      $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
+
+      return $this->play($workingDirectory, $input->getOption('troop'), $renderer->id, $setup, $output);
+    }
+
+    if ($troops === [] || ! $party instanceof Party) {
       $output->writeln('<error>No troops to fight.</error>');
 
       return Command::FAILURE;
@@ -521,7 +639,8 @@ class BattleCommand extends Command
    * @param OutputInterface $output Where to report a failure.
    * @return int The exit code.
    */
-  protected function play(string $workingDirectory, ?string $troop, OutputInterface $output): int
+  protected function play(string $workingDirectory, ?string $troop, string $rendererId, BattleTestSetup $setup,
+    OutputInterface $output): int
   {
     $previousDirectory = getcwd();
 
@@ -531,26 +650,257 @@ class BattleCommand extends Command
       return Command::FAILURE;
     }
 
+    // The engine reads the renderer the way `play` hands it to the game,
+    // from the environment, here for the arena alone.
+    $variable = GameLaunchCommandBuilder::RENDERER_ENVIRONMENT_VARIABLE;
+    $previousRenderer = getenv($variable);
+    putenv("{$variable}={$rendererId}");
+
     try {
-      // The arena opens on its list of troops; naming one skips straight to
-      // that fight.
-      new Game(
-        $this->projectName($workingDirectory),
-        options: [
-          'starting_scene' => ArenaScene::class,
-          'arena_troop' => $troop ?? '',
-        ]
-      )->run();
+      $this->runArena($this->projectName($workingDirectory), $troop ?? '', $setup);
     } catch (Throwable $throwable) {
-      @chdir($previousDirectory ?: '.');
       $output->writeln('<error>The arena could not start: ' . $throwable->getMessage() . '</error>');
 
       return Command::FAILURE;
+    } finally {
+      putenv($previousRenderer === false ? $variable : "{$variable}={$previousRenderer}");
+      @chdir($previousDirectory ?: '.');
     }
 
-    @chdir($previousDirectory ?: '.');
-
     return Command::SUCCESS;
+  }
+
+  private function getActorStore(): ActorStore
+  {
+    $store = ConfigStore::get(ActorStore::class);
+
+    return $store instanceof ActorStore ? $store : throw new \RuntimeException('The project\'s actors could not be loaded.');
+  }
+
+  private function getItemStore(): ItemStore
+  {
+    $store = ConfigStore::get(ItemStore::class);
+
+    return $store instanceof ItemStore ? $store : throw new \RuntimeException('The project\'s items could not be loaded.');
+  }
+
+  /**
+   * Runs the arena with the setup, which opens on its list of troops;
+   * naming one skips straight to that fight.
+   */
+  protected function runArena(string $projectName, string $troop, BattleTestSetup $setup): void
+  {
+    new Game($projectName, options: [
+      'starting_scene' => ArenaScene::class,
+      'arena_troop' => $troop,
+      ArenaScene::SETUP_OPTION => $setup,
+    ])->run();
+  }
+
+  /**
+   * The setup fighting in one of the battle presentation's arenas, named by
+   * key.
+   *
+   * @throws InvalidArgumentException When the project has no such arena, or no battle presentation at all.
+   */
+  protected function chooseArena(BattleTestSetup $setup, string $arena): BattleTestSetup
+  {
+    if (! method_exists($setup, 'withArena')) {
+      throw new InvalidArgumentException('This project\'s engine cannot choose a battle test arena; update its engine to use --arena.');
+    }
+
+    $catalog = BattlePresentationCatalog::load('assets');
+
+    if ($catalog === null) {
+      throw new InvalidArgumentException('--arena: the project declares no battle presentation, so it has no arenas.');
+    }
+
+    $choices = $catalog->getArenaChoices();
+
+    if (! array_key_exists($arena, $choices)) {
+      throw new InvalidArgumentException(sprintf('--arena: the project has no arena %s (its arenas: %s).', $arena,
+        implode(', ', array_map(static fn(string $key, string $name): string => sprintf('%s (%s)', $key, $name), array_keys($choices), $choices))));
+    }
+
+    return $setup->withArena($arena);
+  }
+
+  /**
+   * The battle test setup the --member options describe, or without them the
+   * project's battle test party (its system data's battleTest, else the
+   * starting party). Either way the project's battle test arena applies
+   * unless --arena overrides it. Actors and items resolve by id or name; a
+   * member without a level takes its actor's authored level.
+   *
+   * @param list<string> $members The --member values.
+   * @throws InvalidArgumentException Naming every problem, before any battle starts.
+   */
+  protected function createSetup(array $members): BattleTestSetup
+  {
+    $actors = $this->getActorStore();
+    $items = $this->getItemStore();
+    // An older engine keeps no project battle test: the starting party it is.
+    $project = class_exists(ProjectBattleTest::class) ? ProjectBattleTest::loadFromProject() : null;
+    if ($members === []) {
+      return $project?->createSetup($actors) ?? BattleTestSetup::getFromStartingParty($actors);
+    }
+    if (count($members) > BattleTestSetup::MAX_MEMBERS) {
+      throw new InvalidArgumentException(sprintf('A battle test party has at most %d members; %d were given.',
+        BattleTestSetup::MAX_MEMBERS, count($members)));
+    }
+
+    $problems = [];
+    $setupMembers = [];
+    foreach ($members as $value) {
+      try {
+        $option = BattleMemberOption::parse(strval($value));
+      } catch (InvalidArgumentException $invalid) {
+        $problems[] = $invalid->getMessage();
+        continue;
+      }
+      $actorId = $actors->canonicalId($option->actor);
+      if ($actorId === null) {
+        $problems[] = sprintf('--member %s: the project has no such actor (its actors: %s).', $option->actor, implode(', ', $actors->getActorIds()));
+        continue;
+      }
+      $equipment = [];
+      foreach ($option->equipment as $slot => $reference) {
+        $item = $reference === null ? null : $items->get($reference);
+        if ($reference !== null && $item === null) {
+          $problems[] = sprintf('--member %s: the project has no item %s.', $option->actor, $reference);
+          continue;
+        }
+        $equipment[$slot] = $item?->id;
+      }
+      $level = $option->level ?? $actors->require($actorId, 'ichiloto battle')->createCharacter()->level;
+      if ($option->commands === null && $option->skills === [] && $option->summons === []) {
+        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment);
+        continue;
+      }
+      if (! method_exists(BattleTestMember::class, 'withCommands')) {
+        $problems[] = sprintf("--member %s: this project's engine cannot set a member's commands, skills or summons; update its engine.", $option->actor);
+        continue;
+      }
+      $known = count($problems);
+      $commands = $this->resolveCommands($option, $problems);
+      $skills = $this->resolveSkills($option, $problems);
+      $summons = $this->resolveSummons($option, $problems);
+      // A member whose loadout does not resolve is not built; its problems are all reported.
+      if (count($problems) === $known) {
+        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, $commands, $skills, $summons);
+      }
+    }
+    $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers, $project?->setup?->arena ?? $project?->arena);
+    $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
+    if ($problems !== [] || $setup === null) {
+      throw new InvalidArgumentException("The battle test party cannot be set up:\n" . implode("\n", $problems));
+    }
+
+    return $setup;
+  }
+
+  /**
+   * Refuses a test loadout in a simulation, which would report numbers that
+   * never used it: the simulator has every battler attack, so commands,
+   * skills and summons change nothing there.
+   *
+   * @throws InvalidArgumentException When a member carries a loadout.
+   */
+  protected function refuseUnsimulatedLoadouts(BattleTestSetup $setup): void
+  {
+    foreach ($setup->members as $member) {
+      if (($member->commands ?? null) !== null || ($member->skills ?? []) !== [] || ($member->summons ?? []) !== []) {
+        throw new InvalidArgumentException(sprintf(
+          '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every battler attack, so'
+          . ' its numbers would never exercise them. Leave out --runs to play the fight and use them; levels and'
+          . ' equipment still simulate.',
+          $member->actorId,
+        ));
+      }
+    }
+  }
+
+  /**
+   * Resolves a member's Commands= list to the engine's command types, by id
+   * or by the label the project shows for it.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return list<BattleCommandType>|null The command menu, or null to keep the normal one.
+   */
+  protected function resolveCommands(BattleMemberOption $option, array &$problems): ?array
+  {
+    if ($option->commands === null) {
+      return null;
+    }
+    $commands = [];
+    foreach ($option->commands as $reference) {
+      $command = BattleCommandType::fromCommandName($reference);
+      if ($command === null) {
+        $problems[] = sprintf('--member %s: there is no command %s (commands: %s).', $option->actor, $reference,
+          implode(', ', array_map(static fn(BattleCommandType $type): string => $type->value, BattleCommandType::cases())));
+        continue;
+      }
+      $commands[] = $command;
+    }
+
+    return $commands;
+  }
+
+  /**
+   * Resolves a member's Skills= list against the project's skill catalogue,
+   * which spans its abilities and spells wherever they are authored.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return list<string> Canonical skill names.
+   */
+  protected function resolveSkills(BattleMemberOption $option, array &$problems): array
+  {
+    $catalog = SkillCatalog::getProjectCatalog();
+    $skills = [];
+    foreach ($option->skills as $reference) {
+      if ($catalog->findSkill($reference) !== null) {
+        $skills[] = $reference;
+        continue;
+      }
+      $similar = array_values(array_filter(array_keys($catalog->getSkills()),
+        static fn(string $name): bool => strcasecmp($name, $reference) === 0));
+      $problems[] = sprintf('--member %s: the project has no skill %s%s.', $option->actor, $reference,
+        $similar === [] ? '' : sprintf(' (did you mean %s?)', implode(' or ', $similar)));
+    }
+
+    return $skills;
+  }
+
+  /**
+   * Resolves a member's Summons= list to the project's summon ids.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return list<string> Summon ids.
+   */
+  protected function resolveSummons(BattleMemberOption $option, array &$problems): array
+  {
+    if ($option->summons === []) {
+      return [];
+    }
+    $library = new SummonCutsceneLibrary();
+    $summons = [];
+    foreach ($option->summons as $reference) {
+      try {
+        $summon = $library->findById($reference);
+      } catch (\Throwable $unreadable) {
+        $problems[] = sprintf('--member %s: summon %s cannot be read: %s', $option->actor, $reference, $unreadable->getMessage());
+        continue;
+      }
+      if ($summon === null) {
+        $ids = array_map(static fn($definition): string => $definition->id, $library->load());
+        $problems[] = sprintf('--member %s: the project has no summon %s (summons: %s).', $option->actor, $reference,
+          $ids === [] ? 'none' : implode(', ', $ids));
+        continue;
+      }
+      $summons[] = $summon->id;
+    }
+
+    return $summons;
   }
 
   /**
@@ -676,34 +1026,13 @@ class BattleCommand extends Command
       ConfigStore::put(ItemStore::class, new ItemStore());
     }
 
+    if (! ConfigStore::has(ActorStore::class)) {
+      ConfigStore::put(ActorStore::class, new ActorStore());
+    }
+
     if (! ConfigStore::has(EnemyStore::class)) {
       ConfigStore::put(EnemyStore::class, new EnemyStore());
     }
-  }
-
-  /**
-   * Builds the project's starting party.
-   *
-   * @return Party The party.
-   */
-  protected function loadParty(): Party
-  {
-    $system = asset('Data/system.php', true);
-    $members = [];
-
-    foreach ((array) ($system['startingParty'] ?? []) as $member) {
-      $data = asset("Data/Actors/{$member}.php", true);
-
-      if (is_array($data) && isset($data['data'])) {
-        $members[] = $data['data'];
-      }
-    }
-
-    if ($members === []) {
-      throw new \RuntimeException('The project has no starting party.');
-    }
-
-    return Party::fromArray($members);
   }
 
   /**

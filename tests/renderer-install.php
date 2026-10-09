@@ -259,7 +259,8 @@ try {
     $originalPayload = file_get_contents($installedExecutable);
     foreach (['{', '{"version":2,"renderers":{"future":{}}}', '{"version":1}',
         '{"version":1,"renderers":{"testgpu":"invalid"}}',
-        '{"version":1,"renderers":{"testgpu":{"linux-x64":false}}}'] as $invalidManifest) {
+        '{"version":1,"renderers":{"testgpu":{"linux-x64":false}}}',
+        '{"version":1,"renderers":{"testgpu":{"linux-x64":"../escape"}}}'] as $invalidManifest) {
         file_put_contents($manifestFile, $invalidManifest);
         foreach ([true, false] as $dryRun) {
             $refused = false;
@@ -267,6 +268,9 @@ try {
                 $installer->install($package['root'], $boundary, $dryRun);
             } catch (RuntimeException $error) {
                 $refused = str_contains($error->getMessage(), 'existing renderer manifest');
+                assertRendererInstall(str_contains($error->getMessage(), $manifestFile), 'manifest errors name the exact file.');
+                assertRendererInstall(str_contains(strtolower($error->getMessage()), 'back'), 'manifest errors explain a safe backup/repair remedy.');
+                assertRendererInstall(str_contains($error->getMessage(), 'Do not delete installed payloads or bypass verification'), 'recovery must preserve integrity checks.');
             }
             assertRendererInstall($refused, 'an unmergeable manifest refuses real and dry-run installations.');
             assertRendererInstall(file_get_contents($manifestFile) === $invalidManifest, 'a refused manifest stays byte-identical.');
@@ -280,6 +284,9 @@ try {
         $installer->install($package['root'], $boundary);
     } catch (RuntimeException $error) {
         $refused = str_contains($error->getMessage(), 'cannot be read');
+        assertRendererInstall(str_contains($error->getMessage(), $manifestFile)
+            && str_contains($error->getMessage(), 'regular file')
+            && str_contains($error->getMessage(), 'read permissions'), 'unreadable manifest errors name the path and access remedy.');
     }
     assertRendererInstall($refused && is_dir($manifestFile), 'an unreadable non-file manifest is preserved and refused.');
     rmdir($manifestFile);

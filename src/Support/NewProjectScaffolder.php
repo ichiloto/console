@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Console\Support;
 
 use Ichiloto\Console\Util\Path;
+use Ichiloto\Engine\Core\ProjectFormat;
 use RuntimeException;
 
 final class NewProjectScaffolder
@@ -58,10 +59,6 @@ final class NewProjectScaffolder
             $this->renderGitIgnore(),
         );
         $files[] = $this->writeFile(
-            Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'abilities.php'),
-            $this->renderPhpArrayFile([]),
-        );
-        $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'animations.php'),
             $this->renderPhpArrayFile([]),
         );
@@ -71,19 +68,15 @@ final class NewProjectScaffolder
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'enemies.php'),
-            $this->renderPhpArrayFile([]),
+            $this->renderEnemiesBarrel(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'items.php'),
-            $this->renderPhpArrayFile([]),
-        );
-        $files[] = $this->writeFile(
-            Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'magic.php'),
-            $this->renderPhpArrayFile([]),
+            $this->renderItemsBarrel(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'skills.php'),
-            $this->renderPhpArrayFile([]),
+            $this->renderSkillsBarrel(),
         );
         $files[] = $this->writeFile(
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'save-compatibility.php'),
@@ -93,7 +86,7 @@ final class NewProjectScaffolder
             Path::join($blueprint['targetDirectory'], 'assets', 'Data', 'system.php'),
             $this->renderSystemData(
                 title: $blueprint['displayName'],
-                heroId: $blueprint['heroId'],
+                heroIdentity: $blueprint['heroName'],
                 battleEngine: $blueprint['battleEngine'],
             ),
         );
@@ -247,6 +240,7 @@ final class NewProjectScaffolder
     {
         return json_encode([
             'id' => $projectId,
+            ProjectFormat::KEY => ProjectFormat::CURRENT,
             'name' => $displayName,
             'description' => 'A terminal-born RPG forged with the Ichiloto Engine.',
             'version' => '0.1.0',
@@ -504,11 +498,12 @@ logs/*
 !logs/.gitkeep
 .data/saves/*
 !.data/saves/.gitkeep
+/.data/player-settings.json
 *.iedata
 TXT;
     }
 
-    private function renderSystemData(string $title, string $heroId, string $battleEngine): string
+    private function renderSystemData(string $title, string $heroIdentity, string $battleEngine): string
     {
         return $this->renderPhpArrayFile([
             'title' => $title,
@@ -516,7 +511,7 @@ TXT;
                 'amount' => 0,
             ],
             'startingParty' => [
-                $heroId,
+                $heroIdentity,
             ],
             'startingInventory' => [],
             'startingPositions' => [
@@ -591,6 +586,7 @@ return [
   'class' => Character::class,
   'data' => [
     'name' => HERO_NAME,
+    'id' => HERO_NAME,
     'description' => '',
     'level' => 1,
     'currentExp' => 0,
@@ -657,6 +653,34 @@ return [
   '@' => CollisionType::NPC,
 ];
 PHP;
+    }
+
+    /** Skills are authored one record per numbered file in Skills/; this file loads them. */
+    private function renderSkillsBarrel(): string
+    {
+        return "<?php\n\nuse Ichiloto\\Engine\\Entities\\Skills\\SkillCatalog;\n\n"
+            . "// Skills are authored one per file in Skills/, numbered in the order menus list them.\n"
+            . "return SkillCatalog::loadProjectSkills(dirname(__DIR__));\n";
+    }
+
+    /** Enemies are authored one record per file in Enemies/; this file loads them. */
+    private function renderEnemiesBarrel(): string
+    {
+        return "<?php\n\nuse Ichiloto\\Engine\\Entities\\Enemies\\EnemyCatalog;\n\n"
+            . "// Enemies are authored one per file in Enemies/.\n"
+            . "return EnemyCatalog::loadProjectEnemies(dirname(__DIR__));\n";
+    }
+
+    /**
+     * Items, weapons and armors are authored one record per numbered file in
+     * Items/, Weapons/ and Armors/; this file loads them.
+     */
+    private function renderItemsBarrel(): string
+    {
+        return "<?php\n\nuse Ichiloto\\Engine\\Entities\\Inventory\\ItemCatalog;\n\n"
+            . "// Items, weapons and armors are authored one per file in Items/, Weapons/ and\n"
+            . "// Armors/, numbered in the order shops and menus list them.\n"
+            . "return ItemCatalog::loadProjectItems(dirname(__DIR__));\n";
     }
 
     /**

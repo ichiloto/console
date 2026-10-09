@@ -9,7 +9,11 @@ use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\GameProcessLauncher;
+use Ichiloto\Console\Support\ProjectFormatCheck;
+use Ichiloto\Console\Support\RendererUpdateOffer;
 use Ichiloto\Console\Support\TerminalInteractivity;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
+use Ichiloto\Console\Support\SourceRendererUpdater;
 use Ichiloto\Console\Util\Path;
 use InvalidArgumentException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -17,6 +21,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 #[AsCommand(
     name: 'play',
@@ -34,18 +39,25 @@ class PlayCommand extends Command
 
   private readonly GameProcessLauncher $gameProcessLauncher;
 
+  private readonly RendererUpdateOffer $rendererUpdateOffer;
+
   public function __construct(
     ?RendererRegistry $rendererRegistry = null,
     ?RendererSelector $rendererSelector = null,
     ?TerminalInteractivity $terminalInteractivity = null,
     ?GameLaunchCommandBuilder $launchCommandBuilder = null,
     ?GameProcessLauncher $gameProcessLauncher = null,
+    ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
+    ?SourceRendererUpdater $rendererUpdater = null,
+    ?callable $rendererUpdatePrompt = null,
   ) {
     $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
     $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
     $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
     $this->launchCommandBuilder = $launchCommandBuilder ?? new GameLaunchCommandBuilder();
     $this->gameProcessLauncher = $gameProcessLauncher ?? new GameProcessLauncher($this->launchCommandBuilder);
+    $this->rendererUpdateOffer = new RendererUpdateOffer($rendererUpdateChecker, $rendererUpdater,
+      $this->terminalInteractivity, $rendererUpdatePrompt);
 
     parent::__construct();
   }
@@ -85,6 +97,15 @@ class PlayCommand extends Command
     }
 
     $workingDirectory = $resolvedWorkingDirectory;
+    $formatProblem = ProjectFormatCheck::getProblem($workingDirectory);
+
+    if ($formatProblem !== null) {
+      // The engine would refuse the project after launch; say why before starting it.
+      $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
+
+      return Command::FAILURE;
+    }
+
     $output->writeln('Playing the game in the working directory: ' . $workingDirectory, OutputInterface::VERBOSITY_VERBOSE);
     $config = new AppConfig($input, $output, $workingDirectory);
     $configuredMainFile = $config->get('main');
@@ -129,8 +150,10 @@ class PlayCommand extends Command
     $errorLogFile = $this->prepareErrorLogFile($workingDirectory);
 
     if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
-      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id);
+      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id, $input, $output);
     }
+
+    $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
 
     $resultCode = $this->gameProcessLauncher->launch(
       workingDirectory: $workingDirectory,
@@ -189,6 +212,8 @@ class PlayCommand extends Command
     string $mainFile,
     string $errorLogFile,
     string $rendererId,
+    InputInterface $input,
+    OutputInterface $output,
   ): int
   {
     $sessionName = 'ichiloto-play-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
@@ -196,6 +221,7 @@ class PlayCommand extends Command
     $launchCommand = $this->launchCommandBuilder->buildCrashPreservingCommand($gameCommand, 'Ichiloto game');
 
     if (! $this->tmuxSessionExists($sessionName)) {
+      $this->rendererUpdateOffer->offer($workingDirectory, $rendererId, $input, $output);
       passthru($this->launchCommandBuilder->buildTmuxNewSessionCommand(
         sessionName: $sessionName,
         workingDirectory: $workingDirectory,
