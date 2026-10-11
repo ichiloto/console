@@ -104,6 +104,49 @@ an executable location.
 The Engine consumes `ICHILOTO_RENDERER` and launches the registered platform
 implementation. WSL uses the Linux renderer, not a Windows executable.
 
+Tooling can ask the opened project's Engine which renderers are installed
+without starting a game, opening a window, updating packages or editing settings:
+
+```bash
+ichiloto renderer:list --directory=/path/to/project --json
+ichiloto play --renderer=auto --no-interaction
+```
+
+The `ichiloto.renderers/1` report contains `renderers` entries with `id`,
+`displayName`, `available` and an unavailable `reason`, plus `preferredId`.
+Explicit `auto` prefers resolver-validated installed GPUI, otherwise Terminal.
+This checks the installation, not a successful native handshake. An explicit
+`gpui` choice never silently becomes Terminal. The ordinary interactive choice
+and noninteractive Terminal default above remain unchanged. An older project
+Engine without discovery reports a required update instead of guessed results.
+
+### Editor Play Startup
+
+```bash
+ichiloto play --start=new-game --renderer=auto --terminal-window --no-tmux --no-interaction
+ichiloto play --start=title --renderer=terminal --terminal-window --no-tmux --no-interaction
+```
+
+`--start=new-game` skips splash/title and uses the same New Game loader as the
+title menu, at the project's authored starting map and cell. `--start=title`
+opens the normal title flow. Neither option edits settings or reads a saved
+game at startup; use a save-less disposable project overlay for isolated Editor
+playtesting. Ordinary gameplay after startup can still save normally. The
+explicit mode is passed as process-only `ICHILOTO_START_MODE`; it refuses an
+older Engine or a conflicting `starting_scene` rather than ignoring the request.
+Without an explicit mode, custom-scene and ordinary startup remain supported.
+
+`--terminal-window` applies only when the chosen renderer is Terminal, including
+`auto` fallback. GPUI launches directly. Terminal gameplay receives its own
+terminal input/output while the watched `play` process stays alive until the
+game ends. Diagnostic log output and the child exit status reach the caller;
+stopping the caller cancels its owned game/descendants and cleans private
+scratch, without closing other terminals or quitting a shared Terminal app.
+macOS uses a nonce-owned Terminal window, Linux uses X11/XWayland `xterm`, and
+Windows uses a new console with local PowerShell/taskkill lifetime helpers.
+Missing platform prerequisites produce a diagnostic, not a hidden fallback.
+Native windows and Windows/Linux execution still require platform qualification.
+
 When `play` finds an existing project tmux session, it attaches to the game
 that is already running. A renderer option applies when a new game process is
 launched and cannot change the renderer of an existing session.

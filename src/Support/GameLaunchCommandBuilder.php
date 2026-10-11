@@ -7,6 +7,28 @@ namespace Ichiloto\Console\Support;
 final class GameLaunchCommandBuilder
 {
     public const RENDERER_ENVIRONMENT_VARIABLE = 'ICHILOTO_RENDERER';
+    public const STARTUP_ENVIRONMENT_VARIABLE = 'ICHILOTO_START_MODE';
+
+    /** @return array<string, string> */
+    public function buildEnvironment(string $rendererId, ?string $startMode = null): array
+    {
+        $environment = getenv();
+        $environment = is_array($environment) ? $environment : [];
+        $environment[self::RENDERER_ENVIRONMENT_VARIABLE] = $rendererId;
+        if ($startMode !== null) {
+            $this->validateStartMode($startMode);
+            $environment[self::STARTUP_ENVIRONMENT_VARIABLE] = $startMode;
+        }
+
+        return $environment;
+    }
+
+    public function validateStartMode(string $startMode): void
+    {
+        if (!in_array($startMode, ['title', 'new-game'], true)) {
+            throw new \InvalidArgumentException('Unknown game start mode. Use title or new-game.');
+        }
+    }
 
     /**
      * @return list<string>
@@ -27,20 +49,26 @@ final class GameLaunchCommandBuilder
         ];
     }
 
-    public function buildGameCommand(string $mainFile, string $errorLogFile, string $rendererId): string
+    public function buildGameCommand(string $mainFile, string $errorLogFile, string $rendererId, ?string $startMode = null): string
     {
         $arguments = array_map(
             static fn (string $argument): string => escapeshellarg($argument),
             $this->buildGameCommandArguments($mainFile, $errorLogFile),
         );
 
-        return sprintf(
+        $command = sprintf(
             '%s=%s %s 2>> %s',
             self::RENDERER_ENVIRONMENT_VARIABLE,
             escapeshellarg($rendererId),
             implode(' ', $arguments),
             escapeshellarg($errorLogFile),
         );
+        if ($startMode !== null) {
+            $this->validateStartMode($startMode);
+            $command = self::STARTUP_ENVIRONMENT_VARIABLE . '=' . escapeshellarg($startMode) . ' ' . $command;
+        }
+
+        return $command;
     }
 
     public function buildCrashPreservingCommand(string $command, string $label): string
