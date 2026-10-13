@@ -38,6 +38,7 @@ final class TerminalSessionWorker
         $input = STDIN;
         $output = STDOUT;
         $errors = STDERR;
+        $diagnosticErrors = null;
         try {
             // PHP's CREATE_NEW_CONSOLE still supplies the parent's standard handles.
             // Bind explicitly to this console, never the GUI's inherited log handles.
@@ -84,6 +85,14 @@ final class TerminalSessionWorker
             if ((str_contains($executable, '/') || str_contains($executable, '\\')) && (! is_file($executable) || ! is_executable($executable))) {
                 throw new RuntimeException('Terminal game executable is unavailable: ' . $executable);
             }
+            $diagnosticPath = $launch['environment']['ICHILOTO_TERMINAL_DIAGNOSTIC_LOG'] ?? null;
+            if ($diagnosticPath !== null) {
+                $diagnosticErrors = @fopen($diagnosticPath, 'ab');
+                if (!is_resource($diagnosticErrors)) {
+                    throw new RuntimeException('Could not open the Terminal game diagnostic log.');
+                }
+                $errors = $diagnosticErrors;
+            }
             $process = TerminalSessionProcess::start($launch['arguments'], [0 => $input, 1 => $output, 2 => $errors], $launch['directory'], $launch['environment']);
             if (! is_resource($process)) {
                 throw new RuntimeException('Could not start the game in its owned Terminal.');
@@ -129,6 +138,9 @@ final class TerminalSessionWorker
             $game?->stop();
             $scratch?->remove();
             $channel?->close();
+            if (is_resource($diagnosticErrors)) {
+                fclose($diagnosticErrors);
+            }
         }
 
         // No crash prompt in editor-owned mode. Logs, not a surviving window,

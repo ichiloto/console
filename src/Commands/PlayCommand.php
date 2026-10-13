@@ -76,6 +76,7 @@ class PlayCommand extends Command
     $this->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The directory to save the game data.');
     $this->addOption('no-tmux', null, InputOption::VALUE_NONE, 'Launch directly without creating or reusing a tmux session.');
     $this->addOption('start', null, InputOption::VALUE_REQUIRED, 'Start at the title or directly in a new game (title, new-game).');
+    $this->addOption('launch-context', null, InputOption::VALUE_REQUIRED, 'Engine launch context as a JSON object (at most 65536 bytes; cannot be combined with --start).');
     $this->addOption('terminal-window', null, InputOption::VALUE_NONE, 'Open an owned terminal window if the selected renderer is Terminal.');
     $this->addOption(
       'renderer',
@@ -149,6 +150,18 @@ class PlayCommand extends Command
       if ($startMode !== null && !is_string($startMode)) {
         throw new InvalidArgumentException('The start option must be title or new-game.');
       }
+      $launchContext = $input->getOption('launch-context');
+      if ($launchContext !== null && !is_string($launchContext)) {
+        throw new InvalidArgumentException('The launch-context option must be a JSON object.');
+      }
+      if (getenv(GameLaunchCommandBuilder::LAUNCH_CONTEXT_ENVIRONMENT_VARIABLE) !== false) {
+        throw new InvalidArgumentException('Pass launch intent with --launch-context, not inherited ICHILOTO_LAUNCH_CONTEXT.');
+      }
+      $contextErrorLogFile = null;
+      if ($launchContext !== null) {
+        $this->launchCommandBuilder->rejectLaunchContextModeConflict($startMode);
+        $contextErrorLogFile = $this->startupCheck->prepareLaunchContext($workingDirectory, $launchContext);
+      }
       if ($startMode !== null) {
         $this->launchCommandBuilder->validateStartMode($startMode);
         $this->startupCheck->requireModeSupport($workingDirectory, $startMode);
@@ -166,10 +179,10 @@ class PlayCommand extends Command
       return Command::INVALID;
     }
 
-    $errorLogFile = $this->prepareErrorLogFile($workingDirectory);
+    $errorLogFile = $contextErrorLogFile ?? $this->prepareErrorLogFile($workingDirectory);
 
     if ((bool) $input->getOption('terminal-window') && $renderer->id === 'terminal') {
-      $environment = $this->launchCommandBuilder->buildEnvironment($renderer->id, $startMode);
+      $environment = $this->launchCommandBuilder->buildEnvironment($renderer->id, $startMode, $launchContext);
       $environment[TerminalSessionLauncher::DIAGNOSTIC_LOG_ENVIRONMENT] = $errorLogFile;
       $resultCode = $this->terminalSession->launch($workingDirectory,
         $this->launchCommandBuilder->buildGameCommandArguments($mainFile, $errorLogFile), $environment);
@@ -182,7 +195,7 @@ class PlayCommand extends Command
     }
 
     if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
-      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id, $input, $output, $startMode);
+      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id, $input, $output, $startMode, $launchContext);
     }
 
     $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
@@ -193,6 +206,7 @@ class PlayCommand extends Command
       errorLogFile: $errorLogFile,
       rendererId: $renderer->id,
       startMode: $startMode,
+      launchContext: $launchContext,
     );
 
     if ($resultCode === null) {
@@ -248,13 +262,19 @@ class PlayCommand extends Command
     InputInterface $input,
     OutputInterface $output,
     ?string $startMode = null,
+    ?string $launchContext = null,
   ): int
   {
     $sessionName = 'ichiloto-play-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
-    $gameCommand = $this->launchCommandBuilder->buildGameCommand($mainFile, $errorLogFile, $rendererId, $startMode);
+    $gameCommand = $this->launchCommandBuilder->buildGameCommand($mainFile, $errorLogFile, $rendererId, $startMode, $launchContext);
     $launchCommand = $this->launchCommandBuilder->buildCrashPreservingCommand($gameCommand, 'Ichiloto game');
 
-    if (! $this->tmuxSessionExists($sessionName)) {
+    $sessionExists = $this->tmuxSessionExists($sessionName);
+    if ($sessionExists && $launchContext !== null) {
+      $output->writeln('A launch context cannot be applied to an existing tmux game. Use --no-tmux for a new isolated launch.');
+      return Command::INVALID;
+    }
+    if (! $sessionExists) {
       $this->rendererUpdateOffer->offer($workingDirectory, $rendererId, $input, $output);
       passthru($this->launchCommandBuilder->buildTmuxNewSessionCommand(
         sessionName: $sessionName,

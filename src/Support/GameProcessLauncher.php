@@ -20,8 +20,9 @@ final readonly class GameProcessLauncher
         string $errorLogFile,
         string $rendererId,
         ?string $startMode = null,
+        ?string $launchContext = null,
     ): ?int {
-        $environment = $this->commandBuilder->buildEnvironment($rendererId, $startMode);
+        $environment = $this->commandBuilder->buildEnvironment($rendererId, $startMode, $launchContext);
         $errorStream = @fopen($errorLogFile, 'ab');
 
         if (! is_resource($errorStream)) {

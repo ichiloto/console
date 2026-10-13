@@ -130,11 +130,44 @@ ichiloto play --start=title --renderer=terminal --terminal-window --no-tmux --no
 `--start=new-game` skips splash/title and uses the same New Game loader as the
 title menu, at the project's authored starting map and cell. `--start=title`
 opens the normal title flow. Neither option edits settings or reads a saved
-game at startup; use a save-less disposable project overlay for isolated Editor
-playtesting. Ordinary gameplay after startup can still save normally. The
+game at startup. These options alone do not isolate settings or saves; use the
+launch context below for isolated Editor playtesting. Ordinary gameplay after startup can still save normally. The
 explicit mode is passed as process-only `ICHILOTO_START_MODE`; it refuses an
 older Engine or a conflicting `starting_scene` rather than ignoring the request.
 Without an explicit mode, custom-scene and ordinary startup remain supported.
+
+`play --launch-context='<json>'` accepts one JSON object of at most **65,536
+bytes**, including whitespace (not a filename). Console validates the transport,
+then probes **the project's Engine** through its `vendor/autoload.php` using
+`GameLaunchContext::fromArray`. Unknown or invalid context fields and an older
+Engine without the launch-context API are refused before any game/window launch.
+The Engine owns the schema: optional `mode`, `dataRoot`, `start`, `cinematicId`
+and `battleTest`. A field/cinematic start requires `new-game`; battle intent
+cannot accompany field/title intent. Gameplay preflight remains in the Engine.
+
+```bash
+ichiloto play --launch-context='{"mode":"new-game","dataRoot":"/absolute/canonical/private-root","start":{"mapId":"region/field","x":2,"y":3}}' --renderer=auto --terminal-window --no-tmux --no-interaction
+```
+
+The caller creates and owns `dataRoot`. The project's `LaunchDataRoot` validates
+that it is an existing, canonical, writable directory outside the project and
+not its ancestor, initially containing only an optional regular
+`player-settings.json` copy and safe launcher `logs/`. Console uses that same
+validator and `validatePath` before preparing `logs/error.log`; game stderr,
+PHP `error_log` and Terminal diagnostic mirroring all use this file. Without
+`dataRoot`, the existing project `logs/error.log` location remains in use.
+Console does not copy project data, alter settings/saves or remove the caller's
+root. The Engine controls isolated runtime data and save policy.
+
+`--launch-context` cannot accompany `--start` or any inherited
+`ICHILOTO_START_MODE`, even an empty value. Inherited `ICHILOTO_LAUNCH_CONTEXT`
+is **no longer accepted by Console**: pass the option instead. Validated JSON
+is forwarded unchanged as process-only `ICHILOTO_LAUNCH_CONTEXT` to the game,
+not the Console, renderer preparation, terminal opener or tmux server. Direct,
+owned Terminal and new tmux launches share this transport; a stale tmux-server
+startup mode is removed for the game. A context request refuses an existing
+project tmux session rather than attaching to an unrelated game; use `--no-tmux`
+for an independent launch. Existing ordinary-session attachment is unchanged.
 
 `--terminal-window` applies only when the chosen renderer is Terminal, including
 `auto` fallback. GPUI launches directly. Terminal gameplay receives its own

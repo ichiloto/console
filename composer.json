@@ -48,6 +48,7 @@
             "@php tests/renderer-selection.php",
             "@php tests/renderer-availability.php",
             "@php tests/play-startup.php",
+            "@php tests/play-launch-context.php",
             "@php tests/terminal-session.php",
             "@php tests/renderer-install.php",
             "@php tests/renderer-preparation.php",
