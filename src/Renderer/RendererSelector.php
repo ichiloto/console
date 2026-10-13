@@ -30,11 +30,28 @@ final class RendererSelector
             : Closure::fromCallable($prompt);
     }
 
+    /** @param array{schema: string, renderers: list<array{id: string, displayName: string, available: bool, reason: ?string}>, preferredId: ?string}|null $availabilityReport */
     public function resolve(
         ?string $rendererOption,
         bool $gpuiAlias,
         bool $canPrompt,
+        ?array $availabilityReport = null,
     ): RendererDescriptor {
+        if ($rendererOption !== null && strtolower(trim($rendererOption)) === 'auto') {
+            if ($availabilityReport === null) {
+                throw new InvalidArgumentException('--renderer=auto requires a project renderer availability report.');
+            }
+            $report = ProjectRendererAvailability::validateReport($availabilityReport);
+            if ($report['preferredId'] === null) {
+                throw new UnexpectedValueException('No renderer is available for this project.');
+            }
+            $renderer = $this->registry->require($report['preferredId']);
+            if ($gpuiAlias && $renderer->id !== 'gpui') {
+                throw new InvalidArgumentException('The --gpui-renderer alias conflicts with --renderer=auto selecting ' . $renderer->id . '.');
+            }
+            return $renderer;
+        }
+
         if ($rendererOption !== null) {
             $renderer = $this->registry->require($rendererOption);
 

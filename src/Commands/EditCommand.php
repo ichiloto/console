@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Support\EditorProjectBootstrap;
+use Ichiloto\Console\Support\GuiEditorLocator;
 use Ichiloto\Editor\Editor;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -25,6 +27,7 @@ final class EditCommand extends Command
     {
         $this->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory to open.');
         $this->addOption('no-tmux', null, InputOption::VALUE_NONE, 'Launch directly without creating or reusing a tmux session.');
+        $this->addOption('gui', null, InputOption::VALUE_NONE, 'Open the project in the graphical editor instead of the terminal editor.');
     }
 
     /**
@@ -39,13 +42,16 @@ final class EditCommand extends Command
             return Command::FAILURE;
         }
 
+        if ((bool) $input->getOption('gui')) {
+            return $this->launchGui($workingDirectory, $output);
+        }
+
         if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
             return $this->launchInTmux($workingDirectory);
         }
 
         try {
-            $this->bootstrapEngineDependencies($workingDirectory);
-            $this->bootstrapProjectDependencies($workingDirectory);
+            EditorProjectBootstrap::prepare($workingDirectory);
             (new Editor($workingDirectory))->run();
         } catch (Throwable $throwable) {
             $output->writeln($throwable->getMessage());
@@ -189,59 +195,30 @@ final class EditCommand extends Command
     }
 
     /**
-     * Loads the engine so editor previews can resolve the engine types a
-     * project's data files reference.
-     *
-     * @param string $workingDirectory The project directory.
-     *
-     * @return void
+     * Opens the project in the graphical editor: the native window, with this
+     * console's `edit:host` as the session host it edits through. The
+     * terminal editor is untouched and stays available.
      */
-    private function bootstrapEngineDependencies(string $workingDirectory): void
+    private function launchGui(string $workingDirectory, OutputInterface $output): int
     {
-        load_engine_autoloader($workingDirectory);
-    }
+        $locator = GuiEditorLocator::fromEnvironment(dirname(__DIR__, 2));
+        $executable = $locator->locate();
 
-    /**
-     * Registers the opened project's PSR-4 autoload rules for editor asset inspection.
-     *
-     * @param string $workingDirectory The project directory passed to the editor.
-     * @return void
-     */
-    private function bootstrapProjectDependencies(string $workingDirectory): void
-    {
-        $composerPath = rtrim($workingDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'composer.json';
+        if ($executable === null) {
+            $output->writeln($locator->describeMissing());
 
-        if (! is_file($composerPath)) {
-            return;
+            return Command::FAILURE;
         }
 
-        $composer = json_decode((string) file_get_contents($composerPath), true);
-        $autoloadRules = $composer['autoload']['psr-4'] ?? [];
+        $project = realpath($workingDirectory) ?: $workingDirectory;
+        $command = [
+            $executable,
+            '--project', $project,
+            '--',
+            PHP_BINARY, dirname(__DIR__, 2) . '/bin/ichiloto', 'edit:host', '-d', $project,
+        ];
+        passthru(implode(' ', array_map('escapeshellarg', $command)), $exitCode);
 
-        if (! is_array($autoloadRules) || $autoloadRules === []) {
-            return;
-        }
-
-        spl_autoload_register(static function (string $class) use ($workingDirectory, $autoloadRules): void {
-            foreach ($autoloadRules as $namespace => $paths) {
-                if (! is_string($namespace) || ! str_starts_with($class, $namespace)) {
-                    continue;
-                }
-
-                $relativeClass = str_replace('\\', DIRECTORY_SEPARATOR, substr($class, strlen($namespace))) . '.php';
-
-                foreach ((array) $paths as $path) {
-                    $filename = rtrim($workingDirectory, DIRECTORY_SEPARATOR)
-                        . DIRECTORY_SEPARATOR
-                        . trim((string) $path, DIRECTORY_SEPARATOR)
-                        . DIRECTORY_SEPARATOR
-                        . $relativeClass;
-
-                    if (is_file($filename)) {
-                        require_once $filename;
-                    }
-                }
-            }
-        });
+        return $exitCode === 0 ? Command::SUCCESS : Command::FAILURE;
     }
 }

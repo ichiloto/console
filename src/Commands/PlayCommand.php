@@ -7,9 +7,16 @@ namespace Ichiloto\Console\Commands;
 use Ichiloto\Console\AppConfig;
 use Ichiloto\Console\Renderer\RendererRegistry;
 use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Renderer\ProjectRendererAvailability;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\GameProcessLauncher;
+use Ichiloto\Console\Support\ProjectFormatCheck;
+use Ichiloto\Console\Support\ProjectStartupCheck;
+use Ichiloto\Console\Support\RendererUpdateOffer;
 use Ichiloto\Console\Support\TerminalInteractivity;
+use Ichiloto\Console\Support\SourceRendererUpdateChecker;
+use Ichiloto\Console\Support\SourceRendererUpdater;
+use Ichiloto\Console\Support\TerminalSessionLauncher;
 use Ichiloto\Console\Util\Path;
 use InvalidArgumentException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -17,6 +24,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 #[AsCommand(
     name: 'play',
@@ -34,18 +42,28 @@ class PlayCommand extends Command
 
   private readonly GameProcessLauncher $gameProcessLauncher;
 
+  private readonly RendererUpdateOffer $rendererUpdateOffer;
+
   public function __construct(
     ?RendererRegistry $rendererRegistry = null,
     ?RendererSelector $rendererSelector = null,
     ?TerminalInteractivity $terminalInteractivity = null,
     ?GameLaunchCommandBuilder $launchCommandBuilder = null,
     ?GameProcessLauncher $gameProcessLauncher = null,
+    ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
+    ?SourceRendererUpdater $rendererUpdater = null,
+    ?callable $rendererUpdatePrompt = null,
+    private readonly ProjectRendererAvailability $rendererAvailability = new ProjectRendererAvailability(),
+    private readonly ProjectStartupCheck $startupCheck = new ProjectStartupCheck(),
+    private readonly TerminalSessionLauncher $terminalSession = new TerminalSessionLauncher(),
   ) {
     $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
     $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
     $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
     $this->launchCommandBuilder = $launchCommandBuilder ?? new GameLaunchCommandBuilder();
     $this->gameProcessLauncher = $gameProcessLauncher ?? new GameProcessLauncher($this->launchCommandBuilder);
+    $this->rendererUpdateOffer = new RendererUpdateOffer($rendererUpdateChecker, $rendererUpdater,
+      $this->terminalInteractivity, $rendererUpdatePrompt);
 
     parent::__construct();
   }
@@ -57,11 +75,14 @@ class PlayCommand extends Command
   {
     $this->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The directory to save the game data.');
     $this->addOption('no-tmux', null, InputOption::VALUE_NONE, 'Launch directly without creating or reusing a tmux session.');
+    $this->addOption('start', null, InputOption::VALUE_REQUIRED, 'Start at the title or directly in a new game (title, new-game).');
+    $this->addOption('launch-context', null, InputOption::VALUE_REQUIRED, 'Engine launch context as a JSON object (at most 65536 bytes; cannot be combined with --start).');
+    $this->addOption('terminal-window', null, InputOption::VALUE_NONE, 'Open an owned terminal window if the selected renderer is Terminal.');
     $this->addOption(
       'renderer',
       null,
       InputOption::VALUE_REQUIRED,
-      sprintf('Renderer to use (%s)', implode(', ', $this->rendererRegistry->ids())),
+      sprintf('Renderer to use (%s, auto prefers installed GPUI)', implode(', ', $this->rendererRegistry->ids())),
     );
     $this->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Use the GPUI renderer.');
   }
@@ -85,6 +106,15 @@ class PlayCommand extends Command
     }
 
     $workingDirectory = $resolvedWorkingDirectory;
+    $formatProblem = ProjectFormatCheck::getProblem($workingDirectory);
+
+    if ($formatProblem !== null) {
+      // The engine would refuse the project after launch; say why before starting it.
+      $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
+
+      return Command::FAILURE;
+    }
+
     $output->writeln('Playing the game in the working directory: ' . $workingDirectory, OutputInterface::VERBOSITY_VERBOSE);
     $config = new AppConfig($input, $output, $workingDirectory);
     $configuredMainFile = $config->get('main');
@@ -116,27 +146,67 @@ class PlayCommand extends Command
     }
 
     try {
+      $startMode = $input->getOption('start');
+      if ($startMode !== null && !is_string($startMode)) {
+        throw new InvalidArgumentException('The start option must be title or new-game.');
+      }
+      $launchContext = $input->getOption('launch-context');
+      if ($launchContext !== null && !is_string($launchContext)) {
+        throw new InvalidArgumentException('The launch-context option must be a JSON object.');
+      }
+      if (getenv(GameLaunchCommandBuilder::LAUNCH_CONTEXT_ENVIRONMENT_VARIABLE) !== false) {
+        throw new InvalidArgumentException('Pass launch intent with --launch-context, not inherited ICHILOTO_LAUNCH_CONTEXT.');
+      }
+      $contextErrorLogFile = null;
+      if ($launchContext !== null) {
+        $this->launchCommandBuilder->rejectLaunchContextModeConflict($startMode);
+        $contextErrorLogFile = $this->startupCheck->prepareLaunchContext($workingDirectory, $launchContext);
+      }
+      if ($startMode !== null) {
+        $this->launchCommandBuilder->validateStartMode($startMode);
+        $this->startupCheck->requireModeSupport($workingDirectory, $startMode);
+      }
+      $availability = $rendererOption !== null && strtolower(trim($rendererOption)) === 'auto'
+        ? $this->rendererAvailability->getReport($workingDirectory) : null;
       $renderer = $this->rendererSelector->resolve(
         rendererOption: $rendererOption,
         gpuiAlias: (bool) $input->getOption('gpui-renderer'),
         canPrompt: $input->isInteractive() && $this->terminalInteractivity->supportsPrompts(),
+        availabilityReport: $availability,
       );
-    } catch (InvalidArgumentException $exception) {
+    } catch (\RuntimeException|InvalidArgumentException $exception) {
       $output->writeln($exception->getMessage());
       return Command::INVALID;
     }
 
-    $errorLogFile = $this->prepareErrorLogFile($workingDirectory);
+    $errorLogFile = $contextErrorLogFile ?? $this->prepareErrorLogFile($workingDirectory);
+
+    if ((bool) $input->getOption('terminal-window') && $renderer->id === 'terminal') {
+      $environment = $this->launchCommandBuilder->buildEnvironment($renderer->id, $startMode, $launchContext);
+      $environment[TerminalSessionLauncher::DIAGNOSTIC_LOG_ENVIRONMENT] = $errorLogFile;
+      $resultCode = $this->terminalSession->launch($workingDirectory,
+        $this->launchCommandBuilder->buildGameCommandArguments($mainFile, $errorLogFile), $environment);
+      if ($resultCode === null) {
+        $output->writeln('The Terminal play session could not start: ' . ($this->terminalSession->getFailureReason() ?? 'unknown launch failure'));
+      } elseif ($resultCode !== 0) {
+        $output->writeln('The game exited unexpectedly. Check the error log for details: ' . $errorLogFile);
+      }
+      return $resultCode === 0 ? Command::SUCCESS : Command::FAILURE;
+    }
 
     if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
-      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id);
+      return $this->launchInTmux($workingDirectory, $mainFile, $errorLogFile, $renderer->id, $input, $output, $startMode, $launchContext);
     }
+
+    $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
 
     $resultCode = $this->gameProcessLauncher->launch(
       workingDirectory: $workingDirectory,
       mainFile: $mainFile,
       errorLogFile: $errorLogFile,
       rendererId: $renderer->id,
+      startMode: $startMode,
+      launchContext: $launchContext,
     );
 
     if ($resultCode === null) {
@@ -189,13 +259,23 @@ class PlayCommand extends Command
     string $mainFile,
     string $errorLogFile,
     string $rendererId,
+    InputInterface $input,
+    OutputInterface $output,
+    ?string $startMode = null,
+    ?string $launchContext = null,
   ): int
   {
     $sessionName = 'ichiloto-play-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
-    $gameCommand = $this->launchCommandBuilder->buildGameCommand($mainFile, $errorLogFile, $rendererId);
+    $gameCommand = $this->launchCommandBuilder->buildGameCommand($mainFile, $errorLogFile, $rendererId, $startMode, $launchContext);
     $launchCommand = $this->launchCommandBuilder->buildCrashPreservingCommand($gameCommand, 'Ichiloto game');
 
-    if (! $this->tmuxSessionExists($sessionName)) {
+    $sessionExists = $this->tmuxSessionExists($sessionName);
+    if ($sessionExists && $launchContext !== null) {
+      $output->writeln('A launch context cannot be applied to an existing tmux game. Use --no-tmux for a new isolated launch.');
+      return Command::INVALID;
+    }
+    if (! $sessionExists) {
+      $this->rendererUpdateOffer->offer($workingDirectory, $rendererId, $input, $output);
       passthru($this->launchCommandBuilder->buildTmuxNewSessionCommand(
         sessionName: $sessionName,
         workingDirectory: $workingDirectory,

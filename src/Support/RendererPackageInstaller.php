@@ -328,35 +328,53 @@ final readonly class RendererPackageInstaller
         $contents = is_file($manifestFile) ? @file_get_contents($manifestFile) : false;
 
         if ($contents === false) {
-            throw new RuntimeException('The existing renderer manifest cannot be read; installation was refused.');
+            throw $this->createManifestException($manifestFile, 'cannot be read',
+                'Check that this path is a regular file and restore its read permissions for the current user.');
         }
 
         try {
             $manifest = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
         } catch (JsonException $error) {
-            throw new RuntimeException('The existing renderer manifest is not valid JSON; installation was refused.', previous: $error);
+            throw $this->createManifestException($manifestFile, 'is not valid JSON',
+                'Back up this file, then repair its JSON or restore a known-good manifest backup, preserving all renderer registrations.', $error);
         }
 
         if (! is_array($manifest) || ($manifest['version'] ?? null) !== self::MANIFEST_VERSION
             || ! is_array($manifest['renderers'] ?? null)) {
-            throw new RuntimeException('The existing renderer manifest has an unsupported schema; installation was refused.');
+            throw $this->createManifestException($manifestFile, 'has an unsupported schema',
+                'Use a Console version that supports this manifest version. If the file is damaged, back it up and restore a known-good manifest backup.');
         }
 
         foreach ($manifest['renderers'] as $renderer => $platforms) {
             if (! is_string($renderer) || ! is_array($platforms)) {
-                throw new RuntimeException('The existing renderer manifest has invalid registrations; installation was refused.');
+                throw $this->createManifestException($manifestFile, 'has invalid registrations',
+                    'Back up this file, then repair its renderer/platform entries or restore a known-good manifest backup.');
             }
 
             foreach ($platforms as $platform => $executable) {
                 if (! is_string($platform) || ! is_string($executable)) {
-                    throw new RuntimeException('The existing renderer manifest has invalid registrations; installation was refused.');
+                    throw $this->createManifestException($manifestFile, 'has invalid registrations',
+                        'Back up this file, then repair its renderer/platform entries or restore a known-good manifest backup.');
                 }
 
-                $this->assertSafeRelativePath($executable);
+                try {
+                    $this->assertSafeRelativePath($executable);
+                } catch (RuntimeException $error) {
+                    throw $this->createManifestException($manifestFile, 'has an unsafe executable path',
+                        'Back up this file, then restore a known-good manifest or correct the entry to a safe installed-relative executable path.', $error);
+                }
             }
         }
 
         return $manifest;
+    }
+
+    private function createManifestException(string $path, string $reason, string $remedy, ?Throwable $previous = null): RuntimeException
+    {
+        return new RuntimeException(sprintf(
+            'The existing renderer manifest "%s" %s; installation was refused. %s Do not delete installed payloads or bypass verification.',
+            $path, $reason, $remedy,
+        ), previous: $previous);
     }
 
     private function writeManifest(string $installedDirectory, string $renderer, string $platform, string $executable): void
@@ -372,7 +390,10 @@ final readonly class RendererPackageInstaller
         if (@file_put_contents($temporary, $encoded) === false || ! @rename($temporary, $manifestFile)) {
             @unlink($temporary);
 
-            throw new RuntimeException('The renderer manifest could not be written.');
+            throw new RuntimeException(sprintf(
+                'The renderer manifest "%s" could not be written. Check available disk space and write permissions for "%s", then retry the verified installation.',
+                $manifestFile, $installedDirectory,
+            ));
         }
     }
 
