@@ -128,6 +128,13 @@ if (! is_dir($base)) {
 }
 $root = $base . '/terminal-session-' . bin2hex(random_bytes(12));
 mkdir($root, 0700);
+// This fixture calls the resolved-path-only launcher directly, unlike PlayCommand.
+$resolvedRoot = realpath($root);
+if ($resolvedRoot === false) {
+    rmdir($root);
+    throw new RuntimeException('Cannot resolve the terminal-session fixture root.');
+}
+$root = $resolvedRoot;
 $project = $root . (PHP_OS_FAMILY === 'Windows' ? "/project space ' dollar $;" : "/project space ' quote \" dollar $;");
 mkdir($project, 0700);
 $output = '';
@@ -183,9 +190,13 @@ try {
     $capture = $root . '/capture.json';
     $values = ['space value', "single'quote", 'double"quote', '$(touch NOT_ALLOWED)', '; exit 77', "line\nbreak", 'percent%PATH%', 'back\\slash', ''];
     $code = $launcher->launch($project, buildFixtureGame('capture', $capture, ...$values), ['FIXTURE_VALUE' => "literal ' \" ; $()"]);
-    assertTerminal($code === 0, 'normal completion returns the child exit code');
+    assertTerminal($code === 0, 'normal completion returns the child exit code; captured '
+        . json_encode($code, JSON_THROW_ON_ERROR) . '; refusal ' . ($launcher->getFailureReason() ?? 'none'));
     $captured = json_decode(file_get_contents($capture), true, flags: JSON_THROW_ON_ERROR);
-    assertTerminal($captured['arguments'] === $values && $captured['directory'] === $project, 'argument/path injection characters arrive literally');
+    // Process cwd resolves directory aliases; argument values must still arrive literally.
+    assertTerminal($captured['arguments'] === $values && $captured['directory'] === realpath($project),
+        'argument/path injection characters arrive literally; expected cwd ' . json_encode(realpath($project), JSON_THROW_ON_ERROR)
+        . '; captured ' . json_encode($captured, JSON_THROW_ON_ERROR));
     assertTerminal($captured['environment'] === "literal ' \" ; $()", 'environment data is not shell evaluated');
     assertTerminal(str_contains(file_get_contents($root . '/worker.log'), 'synthetic terminal stdout') && str_contains(file_get_contents($root . '/worker.log'), 'synthetic terminal stderr'), 'game inherits the worker terminal streams');
     assertTerminal(glob($root . '/ichiloto-terminal-*') === [], 'completion removes only owned scratch');
@@ -221,6 +232,8 @@ try {
     $failure = new TerminalSessionLauncher($windows, $root, 0.2, $writer);
     assertTerminal($failure->launch($project, buildFixtureGame('capture', $capture), []) === null && str_contains($failure->getFailureReason() ?? '', 'open'), 'window opening failure refuses, without a GUI-log fallback');
     assertTerminal($failure->launch('/missing/directory', [], []) === null, 'invalid source directory refuses before starting');
+    assertTerminal($failure->launch($project . '/.', buildFixtureGame('capture', $capture), []) === null
+        && str_contains($failure->getFailureReason() ?? '', 'resolved absolute path'), 'unresolved directory aliases refuse before starting');
     assertTerminal($failure->launch($project, ['bad' . "\0" . 'argument'], []) === null, 'NUL arguments refuse');
     assertTerminal($failure->launch($project, buildFixtureGame('capture', $capture), ['BAD=KEY' => 'value']) === null, 'invalid environment refuses');
 

@@ -98,8 +98,12 @@ try {
     foreach (['title', 'new-game'] as $mode) {
         assertPlayStartup($run(['--start' => $mode, '--renderer' => 'terminal']) === Command::SUCCESS,
             'Explicit startup refused: ' . $tester->getDisplay());
-        assertPlayStartup($readCapture() === ['renderer' => 'terminal', 'start' => $mode, 'directory' => $project],
-            'Child lost explicit startup or project working directory.');
+        $captured = $readCapture();
+        // Keep the aliased launch input, but expect the physical process working directory.
+        $expected = ['renderer' => 'terminal', 'start' => $mode, 'directory' => realpath($project)];
+        assertPlayStartup($captured === $expected,
+            'Child lost explicit startup or project working directory. Expected '
+            . json_encode($expected, JSON_THROW_ON_ERROR) . '; captured ' . json_encode($captured, JSON_THROW_ON_ERROR));
         if (PHP_OS_FAMILY !== 'Windows') {
             $command = $builder->buildGameCommand($main, $project . '/logs/error.log', 'terminal', $mode);
             $pipes = [];
