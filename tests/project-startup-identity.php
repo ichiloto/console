@@ -241,19 +241,12 @@ function makeSilentConfig(string $projectRoot, array $config): void
     file_put_contents($projectRoot . '/config.php', "<?php\n\nreturn " . var_export($config, true) . ";\n");
 }
 
-/** Accept the older vendored Engine only when no local source checkout exists. */
-function assertUpdatedLocalEngineIsSelected(): void
+/** Startup safety APIs are required from the Engine selected by Console autoloading. */
+function assertStartupEngineApisAreAvailable(): void
 {
-    $localSource = realpath(dirname(__DIR__, 2) . '/engine/src');
-    if ($localSource === false) { return; }
-
     foreach ([AudioMutePreflight::class, PlayerSettings::class] as $class) {
         if (! class_exists($class)) {
-            throw new RuntimeException("Local Engine API {$class} is unavailable through Console autoloading.");
-        }
-        $resolved = (string) (new ReflectionClass($class))->getFileName();
-        if (! str_starts_with($resolved, $localSource . DIRECTORY_SEPARATOR)) {
-            throw new RuntimeException("Console did not resolve {$class} from the local Engine source.");
+            throw new RuntimeException("Startup safety API {$class} is unavailable through Console autoloading. Update its Engine.");
         }
     }
 }
@@ -290,7 +283,7 @@ function assertSilentProject(string $projectRoot): void
 
 if (($argv[1] ?? null) === '--child') {
     $projectRoot = $argv[2] ?? '';
-    assertUpdatedLocalEngineIsSelected();
+    assertStartupEngineApisAreAvailable();
     assertSilentProject($projectRoot);
     chdir($projectRoot);
     $game = new StartupIdentityProbe('Identity startup check');
@@ -314,7 +307,7 @@ $unsupportedRoot = $temporaryRoot . '/unsupported-released-0.5.0';
 $epicFixture = getenv('ICHILOTO_EPIC_QUEST_SRC');
 $epicSource = is_string($epicFixture) && $epicFixture !== '' ? realpath($epicFixture) : false;
 
-assertUpdatedLocalEngineIsSelected();
+assertStartupEngineApisAreAvailable();
 
 try {
     new NewProjectScaffolder()->scaffold([

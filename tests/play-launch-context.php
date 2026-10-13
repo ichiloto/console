@@ -89,8 +89,8 @@ foreach ($environmentNames as $name) {
 }
 putenv('ICHILOTO_RENDERER=parent-renderer');
 $autoload = $project . '/vendor/autoload.php';
-$engineAutoload = dirname(__DIR__, 2) . '/engine/vendor/autoload.php';
-$autoloadSource = '<?php require ' . var_export($engineAutoload, true) . '; '
+$consoleAutoload = dirname(__DIR__) . '/vendor/autoload.php';
+$autoloadSource = '<?php require ' . var_export($consoleAutoload, true) . '; '
     . 'if (getenv("ICHILOTO_LAUNCH_CONTEXT") !== false) { throw new RuntimeException("Context leaked to probe"); }';
 file_put_contents($autoload, $autoloadSource);
 $main = $project . '/game runner.php';

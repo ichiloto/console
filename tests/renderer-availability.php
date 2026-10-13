@@ -80,7 +80,7 @@ try {
     // Copy the real discovery implementation into an isolated synthetic installation.
     foreach (['RendererRegistry', 'RendererDescriptor', 'RendererAvailability', 'RendererExecutableResolverInterface',
         'PackagedRendererExecutableResolver', 'RendererUnavailableException'] as $class) {
-        copy(dirname(__DIR__, 2) . '/engine/src/Rendering/Launch/' . $class . '.php',
+        copy((string) (new ReflectionClass('Ichiloto\\Engine\\Rendering\\Launch\\' . $class))->getFileName(),
             $engine . '/src/Rendering/Launch/' . $class . '.php');
     }
     $projectAutoload = '<?php if (ini_get("memory_limit") !== "512M") { throw new RuntimeException("Discovery memory cap missing."); }'
@@ -158,7 +158,7 @@ try {
     expectAvailabilityFailure(static fn() => $runner->run(array_replace($cli, [5 => '--directory=' . $root . '/missing']), $root),
         'Supply a valid project directory');
 
-    // This project reports a different Engine registry despite Console already loading its local Engine.
+    // This project reports a different Engine registry despite Console already loading its own Engine.
     $custom = ['schema' => 'ichiloto.renderers/1', 'renderers' => [
         ['id' => 'canvas', 'displayName' => 'Project Canvas', 'available' => true, 'reason' => null],
     ], 'preferredId' => 'canvas'];

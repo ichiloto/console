@@ -11,6 +11,7 @@ use Ichiloto\Console\Support\TerminalSessionLauncher;
 use Ichiloto\Console\Support\TerminalSessionProcess;
 use Ichiloto\Console\Support\TerminalSessionWindow;
 use Ichiloto\Console\Support\TerminalSessionWorker;
+use Ichiloto\Engine\Core\GameStartupMode;
 use Ichiloto\Engine\Core\ProjectFormat;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -61,7 +62,7 @@ file_put_contents(__DIR__ . '/captured.json', json_encode([
 if (($code = getenv('FIXTURE_GAME_EXIT')) !== false) { exit((int) $code); }
 PHP;
 file_put_contents($main, $mainSource);
-$engineEnum = dirname(__DIR__, 2) . '/engine/src/Core/GameStartupMode.php';
+$engineEnum = (string) (new ReflectionClass(GameStartupMode::class))->getFileName();
 $report = ['schema' => 'ichiloto.renderers/1', 'renderers' => [
     ['id' => 'terminal', 'displayName' => 'Native Terminal', 'available' => true, 'reason' => null],
     ['id' => 'gpui', 'displayName' => 'GPUI', 'available' => true, 'reason' => null],
