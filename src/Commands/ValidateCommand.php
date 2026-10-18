@@ -29,6 +29,8 @@ class ValidateCommand extends Command
     $this
       ->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory.')
       ->addOption('strict', 's', InputOption::VALUE_NONE, 'Treat warnings as failures too.')
+      ->addOption('map', 'm', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+        'Check only what is wrong on these maps, by id; repeat it for more. Fails on their errors.')
       ->addOption('migrate-actor-ids', null, InputOption::VALUE_NONE, 'Freeze missing actor ids and repair legacy actor references.');
   }
 
@@ -63,6 +65,21 @@ class ValidateCommand extends Command
       $output->writeln('<error>The project could not be read: ' . $throwable->getMessage() . '</error>');
 
       return Command::FAILURE;
+    }
+
+    $maps = array_values(array_map('strval', (array) $input->getOption('map')));
+    if ($maps !== []) {
+      $unknown = array_diff($maps, $workspace->mapIds);
+      if ($unknown !== []) {
+        $output->writeln('<error>The project has no map ' . OutputFormatter::escape(implode(', ', $unknown)) . '.</error>');
+
+        return Command::FAILURE;
+      }
+      // Only what is wrong on those maps: a gate for a change to them, whatever the rest of the project holds.
+      $issues = array_values(array_filter($issues, static fn(Issue $issue): bool => in_array($issue->map, $maps, true)));
+      $this->report($output, $workspace->projectName . ' (' . implode(', ', $maps) . ')', $issues);
+
+      return $this->getValidationResult($input, $issues);
     }
 
     $this->report($output, $workspace->projectName, $issues);

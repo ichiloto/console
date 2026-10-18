@@ -61,6 +61,7 @@
             "@php tests/legacy-project-upgrade.php",
             "@php tests/project-format-refusal.php",
             "@php tests/validate-working-directory.php",
+            "@php tests/map-apply.php",
             "@php tests/battle-report.php",
             "@php tests/battle-renderer.php",
             "@php tests/battle-members.php",
