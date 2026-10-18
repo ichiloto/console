@@ -13,13 +13,16 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * The editor session host the GUI editor starts as its child process. It
- * speaks the session protocol on standard input and output, so it is not a
- * command to run by hand; `ichiloto edit --gui` starts it.
+ * The editor session host: the GUI editor starts it as its child process
+ * (`ichiloto edit --gui`), and an agent or script drives it to change maps
+ * through the editor. It speaks the session protocol on standard input and
+ * output, so it is not a command to type by hand; the Editor's guide
+ * "Change Maps From A Script" documents it, and `map:apply` runs a batch of
+ * its requests in one go.
  */
 #[AsCommand(
     name: 'edit:host',
-    description: 'Serve a project to the GUI editor over standard input and output.',
+    description: 'Serve a project to the GUI editor or a script over standard input and output.',
     hidden: true,
 )]
 final class EditHostCommand extends Command
