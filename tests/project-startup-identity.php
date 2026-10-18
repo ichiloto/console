@@ -93,14 +93,21 @@ final class StartupIdentityProbe extends Game
         $alert = preg_replace('/\x1b\[[0-9;]*m/', '', $capture->getRenderedAlert() ?? '') ?? '';
         $alert = preg_replace('/[║╔╗╚╝═]/u', ' ', $alert) ?? '';
         $alert = preg_replace('/\s+/u', ' ', $alert) ?? '';
+        // The player sees a recoverable alert in plain words; the file, actor and repair command are for the
+        // developer and belong in the error log, never on the player's screen.
+        $log = (string) @file_get_contents(getcwd() . '/logs/error.log');
         if ($result !== NewGameCommand::FAILURE
             || ! $this->sceneManager->currentScene instanceof TitleScene
             || ! $this->isRunning || $this->hasStopped()
             || ! str_contains($alert, 'New Game Unavailable')
-            || ! str_contains($alert, 'assets/Data/system.php')
-            || ! str_contains($alert, 'AriaVale')
-            || ! str_contains($alert, 'ichiloto validate --migrate-actor-ids')) {
-            throw new RuntimeException('New Game did not show a recoverable title alert: ' . $alert);
+            || str_contains($alert, 'assets/Data/system.php')
+            || str_contains($alert, 'ichiloto validate')) {
+            throw new RuntimeException('New Game did not show a recoverable player-facing title alert: ' . $alert);
+        }
+        if (! str_contains($log, 'assets/Data/system.php')
+            || ! str_contains($log, 'AriaVale')
+            || ! str_contains($log, 'ichiloto validate --migrate-actor-ids')) {
+            throw new RuntimeException('The failed New Game did not log its developer repair details: ' . $log);
         }
         fwrite(STDERR, "TITLE_FAILURE_RECOVERED\n");
     }
