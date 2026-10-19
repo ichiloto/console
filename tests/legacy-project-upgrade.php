@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Ichiloto\Console\Support\SaveCompatibilityMetadata;
+use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
+use Ichiloto\Console\Upgrade\Steps\SaveMetadataStep;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -98,7 +100,28 @@ try {
         'name' => 'moon-studio/legacy-moon',
     ]);
 
-    $first = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $legacyRoot]);
+    // Format 1 on its own: the step writes exactly what the metadata upgrade always wrote.
+    $stepRoot = $temporaryRoot . '/step-one';
+    writeJsonFixture($stepRoot . '/ichiloto.json', ['name' => 'Legacy Moon', 'main' => 'legacy-moon.php']);
+    writeJsonFixture($stepRoot . '/composer.json', ['name' => 'moon-studio/legacy-moon']);
+    $step = new SaveMetadataStep();
+    $stepContext = new ProjectUpgradeContext($stepRoot);
+    $stepPlan = $step->createPlan($stepContext);
+    $expectedConfig = json_encode(
+        ['id' => 'moon-studio/legacy-moon', 'name' => 'Legacy Moon', 'main' => 'legacy-moon.php'],
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
+    ) . PHP_EOL;
+    $stepReport = $step->applyPlan($stepContext, $stepPlan);
+
+    if ($step->getTargetVersion() !== 1
+        || file_get_contents($stepRoot . '/ichiloto.json') !== $expectedConfig
+        || file_get_contents($stepRoot . '/assets/Data/save-compatibility.php') !== SaveCompatibilityMetadata::renderBaseline()
+        || $stepReport->writtenPaths !== ['ichiloto.json', 'assets/Data/save-compatibility.php']
+        || $step->createPlan($stepContext)->writes !== []) {
+        failUpgradeTest('Format 1 no longer writes exactly the legacy save metadata, or is not idempotent.');
+    }
+
+    $first = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $legacyRoot, '--yes']);
 
     if ($first['exitCode'] !== 0) {
         failUpgradeTest('The legacy project did not upgrade: ' . $first['output']);
@@ -109,12 +132,13 @@ try {
     $config = json_decode((string) file_get_contents($configPath), true);
     $manifest = require $manifestPath;
 
-    if (($config['id'] ?? null) !== 'moon-studio/legacy-moon' || ($config['main'] ?? null) !== 'legacy-moon.php') {
-        failUpgradeTest('The upgrade did not preserve config while adopting the canonical Composer identity.');
+    if (($config['id'] ?? null) !== 'moon-studio/legacy-moon' || ($config['main'] ?? null) !== 'legacy-moon.php'
+        || ($config['format'] ?? null) !== SaveMetadataStep::VERSION) {
+        failUpgradeTest('The upgrade did not preserve config while adopting the canonical Composer identity and recording the format.');
     }
 
-    if ($manifest !== SaveCompatibilityMetadata::baseline()) {
-        failUpgradeTest('The upgrade did not create the canonical version-0 compatibility manifest.');
+    if ($manifest !== SaveCompatibilityMetadata::baseline() || ! is_file($legacyRoot . '/ichiloto-upgrade-report.md')) {
+        failUpgradeTest('The upgrade did not create the canonical version-0 compatibility manifest and its report.');
     }
 
     load_engine_autoloader($legacyRoot);
@@ -126,7 +150,7 @@ try {
 
     $configSource = (string) file_get_contents($configPath);
     $manifestSource = (string) file_get_contents($manifestPath);
-    $second = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $legacyRoot]);
+    $second = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $legacyRoot, '--yes']);
 
     if ($second['exitCode'] !== 0
         || ! str_contains($second['output'], 'No upgrade is needed')
@@ -154,11 +178,17 @@ try {
     mkdir($preservedRoot . '/assets/Data', 0777, true);
     $customManifest = "<?php\n\nreturn ['contentVersion' => 7, 'custom' => true];\n";
     file_put_contents($preservedRoot . '/assets/Data/save-compatibility.php', $customManifest);
-    $preserved = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $preservedRoot]);
+    if (new SaveMetadataStep()->createPlan(new ProjectUpgradeContext($preservedRoot))->writes !== []) {
+        failUpgradeTest('Format 1 planned to rewrite existing save identity or compatibility metadata.');
+    }
+
+    $preserved = runUpgradeCommand($consoleBin, $consoleRoot, ['--directory', $preservedRoot, '--yes']);
+    $preservedConfig = json_decode((string) file_get_contents($preservedRoot . '/ichiloto.json'), true);
 
     if ($preserved['exitCode'] !== 0
+        || ($preservedConfig['id'] ?? null) !== 'studio/preserved-game'
         || file_get_contents($preservedRoot . '/assets/Data/save-compatibility.php') !== $customManifest) {
-        failUpgradeTest('Existing save identity or compatibility metadata was overwritten.');
+        failUpgradeTest('Existing save identity or compatibility metadata was overwritten: ' . $preserved['output']);
     }
 
     $invalidRoot = $temporaryRoot . '/invalid-id';
@@ -166,6 +196,7 @@ try {
     $invalid = runUpgradeCommand($consoleBin, $consoleRoot, [
         '--directory', $invalidRoot,
         '--id', 'Not A Stable Identity',
+        '--yes',
     ]);
 
     if ($invalid['exitCode'] === 0
@@ -184,4 +215,4 @@ if (isset($testFailure)) {
     exit(1);
 }
 
-fwrite(STDOUT, "PASS: legacy projects gain stable, idempotent save metadata without overwriting existing contracts.\n");
+fwrite(STDOUT, "PASS: legacy projects gain stable, idempotent save metadata without overwriting existing contracts through the format chain.\n");

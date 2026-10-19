@@ -43,6 +43,7 @@ return [
   'class' => Character::class,
   'data' => [
     'name' => $exportedName,
+    'id' => $exportedName,
     'description' => $exportedDescription,
     'level' => 1,
     'currentExp' => 0,
