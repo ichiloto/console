@@ -267,7 +267,7 @@ Each is a list separated by `|`. The grants exist only in the fresh test
 party; they change no campaign progress. Costs, targets and the summon's own
 rules still apply, and a summon the member cannot hold is refused like any
 other problem. Loadouts are for playing a fight: `--runs` refuses them, because
-its simulator has every battler attack and would never use them.
+its simulator has every party member attack and would never use them.
 
 ```bash
 ichiloto battle --member "Kaelion:20,Commands=attack|skill|summon|item,Summons=djin" --member "Liora:20,Skills=Burn I|Heal I" --troop "Loch Ness"
@@ -280,6 +280,13 @@ repeatedly, with the same party, and reports what the fight *is*:
 ```bash
 ichiloto battle --member Kaelion:20 --troop "Bat x 2" --runs 100
 ```
+
+Each side acts with nobody choosing for it. A party member attacks with its
+inherent attack, the `attackSkill` its actor authors or the built-in attack.
+An enemy chooses from its authored action patterns exactly as it does in play,
+falling back to its own `attackSkill` or the built-in attack. States tick and
+guards end as they do in a live turn. Nobody guards, casts or uses items by
+choice, so a fight a player would heal through reads harder here.
 
 The report opens with the party as fought — each member's level, what each
 slot holds by display name and stable id, the permanent growth it carries
@@ -294,8 +301,8 @@ Everything the report prints is the engine's own projection. Nothing is
 recalculated here, and where the engine does not aggregate something across a
 run — miss, critical, Guard and elemental-outcome rates — the report says so
 and names what would supply it, rather than inferring a number. One seeded
-attack per battler is shown from the simulator's preview seam, labelled as
-the single resolved action it is.
+inherent attack per party member is shown from the simulator's preview seam,
+labelled as the single resolved action it is.
 
 The report is a reading of the project, not a rehearsal on it. Everything a
 party or a troop holds is recorded before anything runs and put back before

@@ -79,7 +79,8 @@ final class MapApplyCommand extends Command
     {
         $output->writeln('');
         $output->writeln(match ($outcome['status']) {
-            'saved' => sprintf('<info>Saved</info> %s.', implode(', ', $outcome['saved']) ?: 'nothing; no map changed'),
+            'saved' => sprintf('<info>Saved</info> %s.', implode(', ', $outcome['saved'])
+                ?: (($outcome['written'] ?? []) === [] ? 'nothing; nothing changed' : 'no map; the documents below changed')),
             'checked' => sprintf('<info>Checked</info> %s; nothing was written.', implode(', ', $outcome['maps']) ?: 'no map changed'),
             'refused' => sprintf('<error> Refused </error> %s Nothing was written.', OutputFormatter::escape((string) ($outcome['reason'] ?? ''))),
             default => sprintf('<error> Failed </error> %s%s Nothing was written.',
@@ -87,6 +88,11 @@ final class MapApplyCommand extends Command
                 OutputFormatter::escape((string) $outcome['message'])),
         });
 
+        // A batch may change databases and cutscenes as well as maps; each written document is named.
+        foreach ($outcome['written'] ?? [] as $document => $paths) {
+            $output->writeln(sprintf('  <fg=gray>wrote %s: %s</>', OutputFormatter::escape((string) $document),
+                OutputFormatter::escape(implode(', ', (array) $paths))));
+        }
         foreach ($outcome['issues'] ?? [] as $issue) {
             $marker = $issue['severity'] === 'error' ? '<error> ! </error>' : '<comment> ? </comment>';
             $output->writeln(sprintf('  %s %s: %s', $marker, OutputFormatter::escape((string) ($issue['map'] ?? $issue['where'])),
