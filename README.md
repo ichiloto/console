@@ -244,6 +244,15 @@ with a new party holding 99 of each item and a new troop. In the arena, go down
 from the troop list into the party to change each member's actor, level and
 equipment.
 
+After the troops, **Compose a test troop** builds a troop just for testing:
+add enemies from the project's enemies, fight them, and choose **Keep as a
+troop** to add them to `assets/Data/troops.php` as a new troop named after its
+members, written through the Editor so the rest of the file stays as it was.
+Under the GPUI renderer the arena is drawn in the game's menu theme with the
+battle's own stage beside the list: the troop under the cursor (or the test
+troop) on the chosen arena with the party standing on it; left and right
+choose the arena, and a test troop's members can be moved on the stage.
+
 The party can also be set up on the command line, one `--member` per member
 (up to four), as `Actor[:level][,Slot=item...]`; actors and items go by id or
 name. Without `--member` it is the starting party. Anything the party cannot be
