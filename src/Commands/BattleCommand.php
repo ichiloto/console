@@ -20,6 +20,7 @@ use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Editor\Database\ProjectTroopKeeper;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
@@ -688,7 +689,9 @@ class BattleCommand extends Command
 
   /**
    * Runs the arena with the setup, which opens on its list of troops;
-   * naming one skips straight to that fight.
+   * naming one skips straight to that fight. A troop composed there and
+   * kept is written into the project's troops by the Editor
+   * ({@see ProjectTroopKeeper}), which keeps the rest of the file as it is.
    */
   protected function runArena(string $projectName, string $troop, BattleTestSetup $setup): void
   {
@@ -696,6 +699,7 @@ class BattleCommand extends Command
       'starting_scene' => ArenaScene::class,
       'arena_troop' => $troop,
       ArenaScene::SETUP_OPTION => $setup,
+      ArenaScene::KEEPER_OPTION => new ProjectTroopKeeper(getcwd() ?: '.'),
     ])->run();
   }
 
