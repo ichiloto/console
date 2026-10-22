@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Console\Upgrade;
 
 use Ichiloto\Console\Upgrade\Steps\MasterySpendStep;
+use Ichiloto\Console\Upgrade\Steps\MasteryTreeStep;
 use Ichiloto\Console\Upgrade\Steps\SaveMetadataStep;
 use InvalidArgumentException;
 
@@ -49,7 +50,8 @@ final readonly class ProjectUpgradeChain
         return new self([
             new SaveMetadataStep(),
             new MasterySpendStep(),
-        ], MasterySpendStep::VERSION);
+            new MasteryTreeStep(),
+        ], MasteryTreeStep::VERSION);
     }
 
     public function getRecordedVersion(ProjectUpgradeContext $context): int

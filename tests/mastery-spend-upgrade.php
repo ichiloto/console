@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
 use Ichiloto\Console\Upgrade\Steps\MasterySpendStep;
 use Ichiloto\Engine\Core\ProjectFormat;
-use Ichiloto\Engine\Progression\Mastery\MasteryMap;
+use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -99,15 +99,16 @@ try {
 
     $run = runMasteryUpgrade($consoleRoot, $root);
     $upgraded = (string) file_get_contents($root . '/assets/Data/Mastery/hero.php');
-    $map = MasteryMap::fromArray(require $root . '/assets/Data/Mastery/hero.php', ['blades']);
+    // The whole chain runs, so the map is read as the current format reads it: the tree owns its skills.
+    $map = MasteryCatalog::load($root . '/assets')->getMaps()['Hero'] ?? failMasteryUpgrade('The upgraded map could not be read.');
     $config = json_decode((string) file_get_contents($root . '/ichiloto.json'), true);
     $report = (string) file_get_contents($root . '/ichiloto-upgrade-report.md');
 
     if ($run['exitCode'] !== 0) {
         failMasteryUpgrade('The upgrade failed: ' . $run['output']);
     }
-    if (array_keys($map->nodes) !== ['cut', 'spark', 'storm'] || str_contains($upgraded, "'order'")
-        || array_map(static fn($node): int => $node->cost, array_values($map->nodes)) !== [0, 120, 300]) {
+    if (array_keys($map->terms) !== ['cut', 'spark', 'storm'] || str_contains($upgraded, "'order'")
+        || array_map(static fn($terms): int => $terms->cost, array_values($map->terms)) !== [0, 120, 300]) {
         failMasteryUpgrade("The map was not listed in study order without its order keys, or its costs changed:\n" . $upgraded);
     }
     if (! str_contains($upgraded, "// The hero's map, kept by hand.") || ! str_contains($upgraded, '// Spark comes second.')) {
