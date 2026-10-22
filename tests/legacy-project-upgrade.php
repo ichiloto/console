@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Ichiloto\Console\Support\SaveCompatibilityMetadata;
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
 use Ichiloto\Console\Upgrade\Steps\SaveMetadataStep;
+use Ichiloto\Engine\Core\ProjectFormat;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -133,7 +134,7 @@ try {
     $manifest = require $manifestPath;
 
     if (($config['id'] ?? null) !== 'moon-studio/legacy-moon' || ($config['main'] ?? null) !== 'legacy-moon.php'
-        || ($config['format'] ?? null) !== SaveMetadataStep::VERSION) {
+        || ($config['format'] ?? null) !== ProjectFormat::CURRENT) {
         failUpgradeTest('The upgrade did not preserve config while adopting the canonical Composer identity and recording the format.');
     }
 
