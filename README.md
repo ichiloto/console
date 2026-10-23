@@ -33,6 +33,7 @@ The CLI currently ships these commands:
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
 - `ichiloto generate:map` for complete Engine 0.5 map scaffolding, created with its kind (`--kind`, one of the project's tilesets; asked when omitted)
+- `ichiloto map:convert-kinds` for converting a glyph-keyed map to its tileset's terrain kinds: without `--kind` it lists the map's glyphs and the kinds; with `--kind ';=grassland' --kind '~=water' ...` it previews each mapping's cells and collision changes, then converts through the editor's validated change set (`--check` writes nothing, `--relocate-saves` moves saves off newly solid cells)
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 - `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)

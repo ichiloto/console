@@ -19,6 +19,7 @@ use Ichiloto\Console\Commands\GenerateActorCommand;
 use Ichiloto\Console\Commands\GenerateFigletCommand;
 use Ichiloto\Console\Commands\GenerateMapCommand;
 use Ichiloto\Console\Commands\MapApplyCommand;
+use Ichiloto\Console\Commands\MapConvertKindsCommand;
 use Ichiloto\Console\Commands\NewCommand;
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Commands\RendererInstallCommand;
@@ -43,6 +44,7 @@ function bootstrap(): int
       new EditHostCommand(),
       new GenerateMapCommand(),
       new MapApplyCommand(),
+      new MapConvertKindsCommand(),
       new GenerateActorCommand(),
       new GenerateFigletCommand(),
       new RendererInstallCommand(),
