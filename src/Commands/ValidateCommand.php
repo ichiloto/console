@@ -4,6 +4,7 @@ namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Console\Support\ProjectFormatCheck;
 use Ichiloto\Editor\Actors\ActorIdentityMigration;
+use Ichiloto\Console\Support\ProjectMemory;
 use Ichiloto\Editor\ProjectWorkspace;
 use Ichiloto\Editor\Validation\ActorReferenceValidator;
 use Ichiloto\Editor\Validation\Issue;
@@ -238,6 +239,7 @@ class ValidateCommand extends Command
    */
   protected function bootstrapDependencies(string $workingDirectory): void
   {
+    ProjectMemory::raise();
     load_engine_autoloader($workingDirectory);
   }
 }

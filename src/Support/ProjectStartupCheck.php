@@ -57,7 +57,7 @@ try {
     exit(1);
 }
 PHP;
-        $result = $this->process->run([PHP_BINARY, '-d', 'memory_limit=512M', '-d', 'display_errors=stderr',
+        $result = $this->process->run([PHP_BINARY, '-d', 'memory_limit=' . ProjectMemory::LIMIT, '-d', 'display_errors=stderr',
             '-d', 'log_errors=0', '-r', $probe, $projectDirectory . '/vendor/autoload.php', $json],
             $projectDirectory, timeoutSeconds: 5);
         $report = json_decode($result, true);
@@ -80,7 +80,7 @@ if (!enum_exists($class) || !is_callable([$class, 'tryFrom']) || $class::tryFrom
 }
 echo 'supported';
 PHP;
-        $result = $this->process->run([PHP_BINARY, '-d', 'memory_limit=512M', '-d', 'display_errors=stderr',
+        $result = $this->process->run([PHP_BINARY, '-d', 'memory_limit=' . ProjectMemory::LIMIT, '-d', 'display_errors=stderr',
             '-d', 'log_errors=0', '-r', $probe, $projectDirectory . '/vendor/autoload.php', $mode],
             $projectDirectory, timeoutSeconds: 5);
         if ($result !== 'supported') {
