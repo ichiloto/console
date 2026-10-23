@@ -14,9 +14,10 @@ final class EditorProjectBootstrap
     /** The variable the editor's playtest reads to find the console that plays the game. */
     public const string CONSOLE_BINARY_ENVIRONMENT = 'ICHILOTO_CONSOLE_BIN';
 
-    /** Loads the engine and registers the project's classes. */
+    /** Loads the engine and registers the project's classes, with the memory a project process has. */
     public static function prepare(string $projectDirectory): void
     {
+        ProjectMemory::raise();
         load_engine_autoloader($projectDirectory);
         self::registerProjectAutoload($projectDirectory);
         self::nameConsoleBinary();

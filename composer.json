@@ -45,6 +45,7 @@
         "test": [
             "@php tests/portable-composer-dependencies.php",
             "@php tests/local-sibling-autoload.php",
+            "@php tests/project-memory.php",
             "@php tests/renderer-selection.php",
             "@php tests/renderer-availability.php",
             "@php tests/play-startup.php",

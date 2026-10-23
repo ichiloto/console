@@ -151,6 +151,12 @@ final class MapConvertKindsCommand extends Command
         $collision = $preview['collision'];
         $output->writeln(sprintf('  Collision changes in %d %s: %d become solid, %d become open.', $collision['changed'],
             $collision['changed'] === 1 ? 'cell' : 'cells', $collision['blocked'], $collision['opened']));
+        $replaced = $preview['atlasBindings'] ?? [];
+        if ($replaced !== []) {
+            $output->writeln('  The kinds take over the map\'s atlas classifications of ' . implode(', ', array_map(static fn(array $binding): string =>
+                sprintf("'%s' on %s (%s)", OutputFormatter::escape($binding['glyph']), OutputFormatter::escape($binding['layer']),
+                    OutputFormatter::escape($binding['role'])), $replaced)) . '.');
+        }
         if ($preview['mappings'] === []) {
             $output->writeln('');
             $output->writeln('  Kinds to map to:');

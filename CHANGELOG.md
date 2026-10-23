@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Commands that open a whole project in their own process (`map:apply`,
+  `map:convert-kinds`, `validate`, `edit`, `edit:host`) raise PHP's memory
+  limit to the 512M every Ichiloto project process runs with, keeping a
+  higher one. Converting Last Legend's 181 x 61 overworld needs about 230 MB
+  and ran out of memory under PHP's default 128M.
+
 ## 0.5.0
 
 Ichiloto Console 0.5.0 brings the Engine 0.5 runtime and Editor 0.5 authoring
