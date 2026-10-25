@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- `ichiloto map:render MAP[@X,Y,WIDTH,HEIGHT] ... --out DIR` renders maps for
+  review the way the game draws them, both ways: the Terminal field's
+  characters and colours as `.ans` and a page, the graphical field as a
+  native PNG (and a scaled one with `--scale`), and one `review.html` with
+  them side by side. `--player X,Y[,HEADING]` and `--actor ID` stand someone
+  on a cell, `--views FILE` gives each view its own region, subject and
+  label, and `--changes BATCH` renders a batch before it is applied, writing
+  nothing.
 ### Fixed
 
 - Commands that open a whole project in their own process (`map:apply`,
