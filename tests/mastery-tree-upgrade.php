@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
+use Ichiloto\Console\Upgrade\ProjectUpgradeChain;
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
 use Ichiloto\Console\Upgrade\Steps\MasteryTreeStep;
-use Ichiloto\Engine\Core\ProjectFormat;
 use Ichiloto\Engine\Progression\Mastery\MasteryCatalog;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -141,8 +141,8 @@ try {
 
     $plain = $temporaryRoot . '/without-maps';
     writeMasteryTreeProject($plain, []);
-    if (new MasteryTreeStep()->createPlan(new ProjectUpgradeContext($plain))->writes !== [] || ProjectFormat::CURRENT !== MasteryTreeStep::VERSION) {
-        failMasteryTreeUpgrade('A project without Mastery Maps was given changes, or format 3 is not the current format.');
+    if (new MasteryTreeStep()->createPlan(new ProjectUpgradeContext($plain))->writes !== [] || ProjectUpgradeChain::createDefault()->getPendingSteps(2)[0]->getTargetVersion() !== MasteryTreeStep::VERSION) {
+        failMasteryTreeUpgrade('A project without Mastery Maps was given changes, or format 3 is not the step after format 2.');
     }
 } catch (MasteryTreeUpgradeFailure $failure) {
     $testFailure = $failure->getMessage();
