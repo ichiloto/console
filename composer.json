@@ -64,6 +64,7 @@
             "@php tests/mastery-tree-upgrade.php",
             "@php tests/skit-backdrop-upgrade.php",
             "@php tests/project-format-refusal.php",
+            "@php tests/console-installation.php",
             "@php tests/validate-working-directory.php",
             "@php tests/map-apply.php",
             "@php tests/map-render.php",

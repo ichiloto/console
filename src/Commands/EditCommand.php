@@ -6,9 +6,11 @@ namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Console\Support\EditorProjectBootstrap;
 use Ichiloto\Console\Support\GuiEditorLocator;
+use Ichiloto\Console\Upgrade\ProjectFormatStatus;
 use Ichiloto\Editor\Editor;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -39,6 +41,19 @@ final class EditCommand extends Command
 
         if (is_not_valid_working_dir($workingDirectory)) {
             $output->writeln('The working directory is not valid: ' . $workingDirectory);
+            return Command::FAILURE;
+        }
+
+        try {
+            $formatProblem = ProjectFormatStatus::read($workingDirectory)->problem;
+        } catch (Throwable $throwable) {
+            $output->writeln($throwable->getMessage());
+            return Command::FAILURE;
+        }
+
+        if ($formatProblem !== null) {
+            // The editor reads the project with its Engine; say what fixes it before opening any editor.
+            $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
             return Command::FAILURE;
         }
 
