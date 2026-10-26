@@ -19,20 +19,16 @@ final readonly class GameProcessLauncher
         string $mainFile,
         string $errorLogFile,
         string $rendererId,
+        ?string $startMode = null,
+        ?string $launchContext = null,
     ): ?int {
+        $environment = $this->commandBuilder->buildEnvironment($rendererId, $startMode, $launchContext);
         $errorStream = @fopen($errorLogFile, 'ab');
 
         if (! is_resource($errorStream)) {
             return null;
         }
 
-        $environment = getenv();
-
-        if (! is_array($environment)) {
-            $environment = [];
-        }
-
-        $environment[GameLaunchCommandBuilder::RENDERER_ENVIRONMENT_VARIABLE] = $rendererId;
         $pipes = [];
 
         try {

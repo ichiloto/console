@@ -29,10 +29,10 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
-- `ichiloto upgrade` for adding mandatory save metadata to projects created by older Console versions
+- `ichiloto upgrade` for converting a project made for an older engine to the current project format
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
-- `ichiloto generate:map` for complete Engine 0.5 map scaffolding
+- `ichiloto generate:map` for complete Engine 0.5 map scaffolding, created with its kind (`--kind`, one of the project's tilesets; asked when omitted)
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 - `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)
@@ -101,14 +101,115 @@ Renderer implementation discovery is managed internally. The command-line
 interface selects the stable `terminal` or `gpui` identity; it does not accept
 an executable location.
 
-This Console change communicates renderer launch intent only. GPUI rendering
-also requires companion Engine support that consumes `ICHILOTO_RENDERER` and
-resolves the registered implementation; selecting `gpui` does not provide that
-runtime integration by itself.
+The Engine consumes `ICHILOTO_RENDERER` and launches the registered platform
+implementation. WSL uses the Linux renderer, not a Windows executable.
+
+Tooling can ask the opened project's Engine which renderers are installed
+without starting a game, opening a window, updating packages or editing settings:
+
+```bash
+ichiloto renderer:list --directory=/path/to/project --json
+ichiloto play --renderer=auto --no-interaction
+```
+
+The `ichiloto.renderers/1` report contains `renderers` entries with `id`,
+`displayName`, `available` and an unavailable `reason`, plus `preferredId`.
+Explicit `auto` prefers resolver-validated installed GPUI, otherwise Terminal.
+This checks the installation, not a successful native handshake. An explicit
+`gpui` choice never silently becomes Terminal. The ordinary interactive choice
+and noninteractive Terminal default above remain unchanged. An older project
+Engine without discovery reports a required update instead of guessed results.
+
+### Editor Play Startup
+
+```bash
+ichiloto play --start=new-game --renderer=auto --terminal-window --no-tmux --no-interaction
+ichiloto play --start=title --renderer=terminal --terminal-window --no-tmux --no-interaction
+```
+
+`--start=new-game` skips splash/title and uses the same New Game loader as the
+title menu, at the project's authored starting map and cell. `--start=title`
+opens the normal title flow. Neither option edits settings or reads a saved
+game at startup. These options alone do not isolate settings or saves; use the
+launch context below for isolated Editor playtesting. Ordinary gameplay after startup can still save normally. The
+explicit mode is passed as process-only `ICHILOTO_START_MODE`; it refuses an
+older Engine or a conflicting `starting_scene` rather than ignoring the request.
+Without an explicit mode, custom-scene and ordinary startup remain supported.
+
+`play --launch-context='<json>'` accepts one JSON object of at most **65,536
+bytes**, including whitespace (not a filename). Console validates the transport,
+then probes **the project's Engine** through its `vendor/autoload.php` using
+`GameLaunchContext::fromArray`. Unknown or invalid context fields and an older
+Engine without the launch-context API are refused before any game/window launch.
+The Engine owns the schema: optional `mode`, `dataRoot`, `start`, `cinematicId`
+and `battleTest`. A field/cinematic start requires `new-game`; battle intent
+cannot accompany field/title intent. Gameplay preflight remains in the Engine.
+
+```bash
+ichiloto play --launch-context='{"mode":"new-game","dataRoot":"/absolute/canonical/private-root","start":{"mapId":"region/field","x":2,"y":3}}' --renderer=auto --terminal-window --no-tmux --no-interaction
+```
+
+The caller creates and owns `dataRoot`. The project's `LaunchDataRoot` validates
+that it is an existing, canonical, writable directory outside the project and
+not its ancestor, initially containing only an optional regular
+`player-settings.json` copy and safe launcher `logs/`. Console uses that same
+validator and `validatePath` before preparing `logs/error.log`; game stderr,
+PHP `error_log` and Terminal diagnostic mirroring all use this file. Without
+`dataRoot`, the existing project `logs/error.log` location remains in use.
+Console does not copy project data, alter settings/saves or remove the caller's
+root. The Engine controls isolated runtime data and save policy.
+
+`--launch-context` cannot accompany `--start` or any inherited
+`ICHILOTO_START_MODE`, even an empty value. Inherited `ICHILOTO_LAUNCH_CONTEXT`
+is **no longer accepted by Console**: pass the option instead. Validated JSON
+is forwarded unchanged as process-only `ICHILOTO_LAUNCH_CONTEXT` to the game,
+not the Console, renderer preparation, terminal opener or tmux server. Direct,
+owned Terminal and new tmux launches share this transport; a stale tmux-server
+startup mode is removed for the game. A context request refuses an existing
+project tmux session rather than attaching to an unrelated game; use `--no-tmux`
+for an independent launch. Existing ordinary-session attachment is unchanged.
+
+`--terminal-window` applies only when the chosen renderer is Terminal, including
+`auto` fallback. GPUI launches directly. Terminal gameplay receives its own
+terminal input/output while the watched `play` process stays alive until the
+game ends. Diagnostic log output and the child exit status reach the caller;
+stopping the caller cancels its owned game/descendants and cleans private
+scratch, without closing other terminals or quitting a shared Terminal app.
+macOS uses a nonce-owned Terminal window, Linux uses X11/XWayland `xterm`, and
+Windows uses a new console with local PowerShell/taskkill lifetime helpers.
+Missing platform prerequisites produce a diagnostic, not a hidden fallback.
+Native windows and Windows/Linux execution still require platform qualification.
 
 When `play` finds an existing project tmux session, it attaches to the game
 that is already running. A renderer option applies when a new game process is
 launched and cannot change the renderer of an existing session.
+
+### Renderer source development
+
+For Engine source checkouts with `resources/renderers/development.json`, a new
+graphical `ichiloto play` launch checks whether the declared renderer source has
+changed. The check does not build anything. In an interactive terminal, an
+available update offers Update now, Continue this launch, or Skip this version.
+Continue offers the update again next time; Skip suppresses it until the source
+fingerprint changes. Non-interactive launches report the update and continue.
+Game PHP and artwork changes do not invalidate the renderer source fingerprint.
+
+Run `ichiloto renderer:update` (or `ichiloto renderer:update <renderer>`) to
+build an optimized release package and install it on request. Console verifies
+the package before installation and preserves the previous installation if a
+build or verification fails. A failed update check or requested update warns but
+does not prevent `play` from attempting the selected renderer; the Engine may
+still reject a missing or incompatible installed renderer at startup. It never
+silently switches to terminal.
+
+This update path is limited to a non-vendored Engine checkout and its declared
+renderer checkout. Composer packages, including `--prefer-source` installs inside
+the project's `vendor` directory, do not search for source, run Cargo or download
+packages. Terminal launches and tmux reattachments skip the check. Direct PHP
+entrypoints use the installed renderer without an update check.
+
+`renderer:install` remains available for installing a previously built package.
+Automatic delivery of published platform packages is not implemented yet.
 
 ## Project Scaffolding
 
@@ -137,12 +238,47 @@ Every new project also gets a generated `assets/Graphics/System/title.txt`, so t
 
 ### Balancing a fight
 
-`ichiloto battle` opens the arena so you can play a troop. Give it a run
-count instead and it simulates the fight repeatedly and reports what the
-fight *is*:
+`ichiloto battle` is a battle test, as in RPG Maker: it opens the arena so you
+can set up a party and play a troop. Every fight starts fresh from the setup,
+with a new party holding 99 of each item and a new troop. In the arena, go down
+from the troop list into the party to change each member's actor, level and
+equipment.
+
+The party can also be set up on the command line, one `--member` per member
+(up to four), as `Actor[:level][,Slot=item...]`; actors and items go by id or
+name. Without `--member` it is the starting party. Anything the party cannot be
+built from is refused, every problem named, before a battle starts:
 
 ```bash
-ichiloto battle --troop "Bat x 2" --runs 100
+ichiloto battle --member "Kaelion:20,Weapon=Iron Sword" --member Liora:18 --troop "Great Wolf"
+```
+
+A member can also carry a test loadout, so a command, skill or summon can be
+tried before the game makes it available:
+
+- `Commands=` replaces the member's command menu, by command id (`attack`,
+  `skill`, `magic`, `summon`, `item`, `guard`, `escape`) or the label the
+  project shows for it;
+- `Skills=` grants abilities or spells from the project's skill catalogue, on
+  top of what the member already knows;
+- `Summons=` grants summons by id.
+
+Each is a list separated by `|`. The grants exist only in the fresh test
+party; they change no campaign progress. Costs, targets and the summon's own
+rules still apply, and a summon the member cannot hold is refused like any
+other problem. Loadouts are for playing a fight: `--runs` refuses them, because
+its simulator has every battler attack and would never use them.
+
+```bash
+ichiloto battle --member "Kaelion:20,Commands=attack|skill|summon|item,Summons=djin" --member "Liora:20,Skills=Burn I|Heal I" --troop "Loch Ness"
+```
+
+Choose the renderer as `ichiloto play` does, with `--renderer` or
+`--gpui-renderer`. Give it a run count instead and it simulates the fight
+repeatedly, with the same party, and reports what the fight *is*:
+
+```bash
+ichiloto battle --member Kaelion:20 --troop "Bat x 2" --runs 100
 ```
 
 The report opens with the party as fought — each member's level, what each
@@ -175,19 +311,39 @@ readable at forty columns.
 
 ### Upgrading an existing project
 
-Projects created before versioned saves were introduced need a permanent
-project id and `assets/Data/save-compatibility.php`. From the project root, run:
+A project records its format version as `"format"` in `ichiloto.json`; a
+project without one is format 0. The game and the editor refuse a project
+whose format is not the engine's, and `ichiloto play` and `ichiloto validate`
+stop before launching or reading it, printing the engine's explanation. From
+the project root, run:
 
 ```bash
 ichiloto upgrade
 ichiloto validate
 ```
 
-The upgrader preserves metadata that already exists. When the id is missing it
-uses a canonical Composer package name when available, otherwise it derives
-`ichiloto/<project-name>`. Preview the result with `--dry-run`, or choose the
-identity explicitly with `--id=vendor/project`. Never change that id after save
-files exist.
+The upgrade needs no arguments. It first lists, one line per pending format,
+what will change and how much, then asks before writing anything. It runs
+every step from the project's format to the engine's, in order, and records
+the new format after each one, so an interrupted upgrade continues where it
+stopped. A project that is already current is left untouched.
+
+- `--dry-run` prints the same list and changes nothing.
+- `--yes` (`-y`) upgrades without the prompt; without a terminal it is
+  required, so a script never converts a project by accident.
+- In a Git working tree the upgrade refuses to run over uncommitted changes,
+  so it is one reviewable, reversible change. `--allow-dirty` overrides that.
+- `--directory` names another project directory, and `--id=vendor/project`
+  chooses the save identity when format 1 has to add one.
+
+It ends by printing the follow-up items and writing them to
+`ichiloto-upgrade-report.md` in the project. The chain has one step:
+
+1. **Format 1: save metadata.** Adds a permanent project id and
+   `assets/Data/save-compatibility.php`, preserving metadata that already
+   exists. A missing id comes from a canonical Composer package name when
+   there is one, otherwise `ichiloto/<project-name>`. Never change that id
+   after save files exist.
 
 ## FIGlet Generation
 
@@ -206,7 +362,6 @@ The curated `--style` options are tuned for Ichiloto's house look, while `--font
 
 - `ichiloto edit` and `ichiloto play` expect to be run inside a valid Ichiloto project directory containing `ichiloto.json`.
 - Both commands prefer `tmux` when it is available and the session is interactive, then fall back to direct launch when it is not.
-- `ichiloto battle` is not a full battle runner yet; it is still a placeholder command.
 
 ## Architecture
 
@@ -228,6 +383,12 @@ composer install
 ```
 
 Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
+
+The `validate --migrate-actor-ids` work on `develop` uses
+`Ichiloto\Editor\Actors\ActorIdentityMigration`, which is not in Editor
+0.5.1. Before a future Console release includes that command, release a matching
+Editor version and verify Console's dependency constraint and a clean install
+against it. No new release is implied by the local source checkout.
 
 ### Sibling checkouts cascade automatically
 
@@ -288,3 +449,9 @@ stays installable everywhere.
 - Engine repository: [github.com/ichiloto/engine](https://github.com/ichiloto/engine)
 - Website repository: [github.com/ichiloto/website-v2](https://github.com/ichiloto/website-v2)
 - Console issues: [github.com/ichiloto/console/issues](https://github.com/ichiloto/console/issues)
+
+## Contributing and Git workflow
+
+Read [GIT_WORKFLOW.md](GIT_WORKFLOW.md) and install the Git guards with
+`sh scripts/install-git-guards.sh` before contributing. All changes integrate
+into `develop`; `main` is updated only by a PR from this repository's `develop`.
