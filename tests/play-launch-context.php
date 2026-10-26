@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
+use Ichiloto\Console\Support\ProjectStartupCheck;
 use Ichiloto\Console\Support\RendererPreparationProcess;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Ichiloto\Console\Support\TerminalSessionLauncher;
@@ -179,8 +180,16 @@ try {
         && str_contains($tester->getDisplay(), 'Update its Engine'), 'Old project Engine ignored isolated launch intent or wrote logs.');
     assertLaunchContext($run([]) === Command::SUCCESS && $readCapture()['context'] === false, 'Ordinary play on an old Engine regressed.');
     file_put_contents($autoload, $autoloadSource . ' echo "unexpected output";');
+    // Play asks the project's Engine for its format first, and that probe refuses the noise too.
     assertLaunchContext($run(['--launch-context' => '{}']) === Command::INVALID && !is_file($capture)
-        && str_contains($tester->getDisplay(), 'invalid launch-context support result'), 'Noisy support result was trusted.');
+        && str_contains($tester->getDisplay(), 'could not report the project format'), 'Noisy format result was trusted.');
+    try {
+        new ProjectStartupCheck()->prepareLaunchContext($project, '{}');
+        $noisyContextRefused = false;
+    } catch (RuntimeException $exception) {
+        $noisyContextRefused = str_contains($exception->getMessage(), 'invalid launch-context support result');
+    }
+    assertLaunchContext($noisyContextRefused, 'Noisy support result was trusted.');
     file_put_contents($autoload, $autoloadSource);
 
     mkdir($root . '/foreign', 0700);

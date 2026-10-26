@@ -167,7 +167,7 @@ try {
     unlink($plain . '/assets/Data/Presentation/dialogue.php');
     if (new SkitBackdropStep()->createPlan(new ProjectUpgradeContext($plain))->writes !== []
         || ProjectFormat::CURRENT !== SkitBackdropStep::VERSION
-        || ProjectUpgradeChain::createDefault()->getPendingSteps(3)[0]->getTargetVersion() !== SkitBackdropStep::VERSION) {
+        || ProjectUpgradeChain::createDefault()->getPendingSteps(3, SkitBackdropStep::VERSION)[0]->getTargetVersion() !== SkitBackdropStep::VERSION) {
         failSkitBackdropUpgrade('A project without skit backgrounds was given changes, or format 4 is not the current step.');
     }
 } catch (SkitBackdropUpgradeFailure $failure) {

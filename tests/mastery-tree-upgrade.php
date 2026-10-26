@@ -141,7 +141,7 @@ try {
 
     $plain = $temporaryRoot . '/without-maps';
     writeMasteryTreeProject($plain, []);
-    if (new MasteryTreeStep()->createPlan(new ProjectUpgradeContext($plain))->writes !== [] || ProjectUpgradeChain::createDefault()->getPendingSteps(2)[0]->getTargetVersion() !== MasteryTreeStep::VERSION) {
+    if (new MasteryTreeStep()->createPlan(new ProjectUpgradeContext($plain))->writes !== [] || ProjectUpgradeChain::createDefault()->getPendingSteps(2, MasteryTreeStep::VERSION)[0]->getTargetVersion() !== MasteryTreeStep::VERSION) {
         failMasteryTreeUpgrade('A project without Mastery Maps was given changes, or format 3 is not the step after format 2.');
     }
 } catch (MasteryTreeUpgradeFailure $failure) {

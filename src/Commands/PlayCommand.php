@@ -10,13 +10,13 @@ use Ichiloto\Console\Renderer\RendererSelector;
 use Ichiloto\Console\Renderer\ProjectRendererAvailability;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\GameProcessLauncher;
-use Ichiloto\Console\Support\ProjectFormatCheck;
 use Ichiloto\Console\Support\ProjectStartupCheck;
 use Ichiloto\Console\Support\RendererUpdateOffer;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Ichiloto\Console\Support\SourceRendererUpdater;
 use Ichiloto\Console\Support\TerminalSessionLauncher;
+use Ichiloto\Console\Upgrade\ProjectFormatStatus;
 use Ichiloto\Console\Util\Path;
 use InvalidArgumentException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -106,15 +106,6 @@ class PlayCommand extends Command
     }
 
     $workingDirectory = $resolvedWorkingDirectory;
-    $formatProblem = ProjectFormatCheck::getProblem($workingDirectory);
-
-    if ($formatProblem !== null) {
-      // The engine would refuse the project after launch; say why before starting it.
-      $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
-
-      return Command::FAILURE;
-    }
-
     $output->writeln('Playing the game in the working directory: ' . $workingDirectory, OutputInterface::VERBOSITY_VERBOSE);
     $config = new AppConfig($input, $output, $workingDirectory);
     $configuredMainFile = $config->get('main');
@@ -156,6 +147,12 @@ class PlayCommand extends Command
       }
       if (getenv(GameLaunchCommandBuilder::LAUNCH_CONTEXT_ENVIRONMENT_VARIABLE) !== false) {
         throw new InvalidArgumentException('Pass launch intent with --launch-context, not inherited ICHILOTO_LAUNCH_CONTEXT.');
+      }
+      // The project's Engine would refuse the project after launch; say why before preparing anything for it.
+      $formatProblem = ProjectFormatStatus::read($workingDirectory)->problem;
+      if ($formatProblem !== null) {
+        $output->writeln('<error> ! </error> ' . OutputFormatter::escape($formatProblem));
+        return Command::FAILURE;
       }
       $contextErrorLogFile = null;
       if ($launchContext !== null) {

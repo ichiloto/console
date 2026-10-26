@@ -260,12 +260,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/ichiloto/editor.git",
-                "reference": "20766e9b2def5d155a35908cba67c13f9ae8a705"
+                "reference": "51528c5d5d96dffafa9487f28ad2cf08515a5f9b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ichiloto/editor/zipball/20766e9b2def5d155a35908cba67c13f9ae8a705",
-                "reference": "20766e9b2def5d155a35908cba67c13f9ae8a705",
+                "url": "https://api.github.com/repos/ichiloto/editor/zipball/51528c5d5d96dffafa9487f28ad2cf08515a5f9b",
+                "reference": "51528c5d5d96dffafa9487f28ad2cf08515a5f9b",
                 "shasum": ""
             },
             "require": {
@@ -304,7 +304,7 @@
                 "issues": "https://github.com/ichiloto/editor/issues",
                 "source": "https://github.com/ichiloto/editor/tree/develop"
             },
-            "time": "2026-10-19T18:19:24+00:00"
+            "time": "2026-10-26T13:26:08+00:00"
         },
         {
             "name": "ichiloto/engine",
@@ -312,18 +312,19 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/ichiloto/engine.git",
-                "reference": "799203d609fc6f22651db5816946e8987afe646c"
+                "reference": "d83f1ff7d88e1e68ce269f47f83a34f3a9f06f86"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ichiloto/engine/zipball/799203d609fc6f22651db5816946e8987afe646c",
-                "reference": "799203d609fc6f22651db5816946e8987afe646c",
+                "url": "https://api.github.com/repos/ichiloto/engine/zipball/d83f1ff7d88e1e68ce269f47f83a34f3a9f06f86",
+                "reference": "d83f1ff7d88e1e68ce269f47f83a34f3a9f06f86",
                 "shasum": ""
             },
             "require": {
                 "amasiye/figlet": "^1.2.1",
                 "assegaiphp/collections": "^0.3.2",
                 "assegaiphp/util": "^0.4.3",
+                "atatusoft-ltd/plural": "^1.2",
                 "league/climate": "^3.9",
                 "php": "^8.4.1",
                 "symfony/console": "^8.0",
@@ -358,7 +359,7 @@
                 "issues": "https://github.com/ichiloto/engine/issues",
                 "source": "https://github.com/ichiloto/engine/tree/develop"
             },
-            "time": "2026-10-19T15:55:46+00:00"
+            "time": "2026-10-26T15:03:22+00:00"
         },
         {
             "name": "laravel/prompts",

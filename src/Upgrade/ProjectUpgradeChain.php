@@ -11,25 +11,22 @@ use Ichiloto\Console\Upgrade\Steps\SkitBackdropStep;
 use InvalidArgumentException;
 
 /**
- * The project format chain: every numbered step from a project's recorded
- * format to the engine's, in order, like the save compatibility chain. The
- * new version is recorded after each step succeeds, so an interrupted
- * upgrade resumes at the step that did not finish.
+ * The project format chain: every numbered step this Console carries, in
+ * order, like the save compatibility chain. The Engine that reads a project
+ * names the format to reach; the chain runs the steps from the project's
+ * recorded format up to it. The new version is recorded after each step
+ * succeeds, so an interrupted upgrade resumes at the step that did not finish.
  */
 final readonly class ProjectUpgradeChain
 {
     /** @var array<int, ProjectUpgradeStepInterface> Steps by target version. */
     private array $steps;
-    /** The format the chain upgrades projects to. */
-    public int $currentVersion;
+    /** The highest format this chain can upgrade a project to. */
+    public int $latestVersion;
 
-    /**
-     * @param list<ProjectUpgradeStepInterface> $steps One step per version, from 1 to the current format.
-     * @param int $currentVersion The format the chain must reach.
-     */
-    public function __construct(array $steps, int $currentVersion)
+    /** @param list<ProjectUpgradeStepInterface> $steps One step per version, from 1 up. */
+    public function __construct(array $steps)
     {
-        $this->currentVersion = $currentVersion;
         $byVersion = [];
 
         foreach ($steps as $step) {
@@ -38,11 +35,12 @@ final readonly class ProjectUpgradeChain
 
         ksort($byVersion);
 
-        if (array_keys($byVersion) !== range(1, $currentVersion)) {
-            throw new InvalidArgumentException(sprintf('The upgrade chain needs exactly one step for each format from 1 to %d.', $currentVersion));
+        if ($byVersion === [] || count($byVersion) !== count($steps) || array_keys($byVersion) !== range(1, count($byVersion))) {
+            throw new InvalidArgumentException('The upgrade chain needs exactly one step for each format from 1 up.');
         }
 
         $this->steps = $byVersion;
+        $this->latestVersion = array_key_last($byVersion);
     }
 
     /** The registered steps, in order. A new format adds its step here. */
@@ -53,7 +51,7 @@ final readonly class ProjectUpgradeChain
             new MasterySpendStep(),
             new MasteryTreeStep(),
             new SkitBackdropStep(),
-        ], SkitBackdropStep::VERSION);
+        ]);
     }
 
     public function getRecordedVersion(ProjectUpgradeContext $context): int
@@ -61,41 +59,50 @@ final readonly class ProjectUpgradeChain
         return ProjectConfigFile::getFormatVersion($context->getPath(ProjectUpgradeContext::CONFIG_FILENAME));
     }
 
-    /** @return list<ProjectUpgradeStepInterface> The steps a project at a version still needs. */
-    public function getPendingSteps(int $version): array
+    /**
+     * The steps that bring a project from one format to another.
+     *
+     * @return list<ProjectUpgradeStepInterface>
+     */
+    public function getPendingSteps(int $version, int $targetVersion): array
     {
+        if ($targetVersion > $this->latestVersion) {
+            throw new InvalidArgumentException(sprintf('This Console has upgrade steps up to format %d, not %d.', $this->latestVersion, $targetVersion));
+        }
+
         return array_values(array_filter(
             $this->steps,
-            static fn(ProjectUpgradeStepInterface $step): bool => $step->getTargetVersion() > $version,
+            static fn(ProjectUpgradeStepInterface $step): bool => $step->getTargetVersion() > $version
+                && $step->getTargetVersion() <= $targetVersion,
         ));
     }
 
     /**
-     * Plans every pending step against the project as it is now, for the
-     * person to read before anything is written.
+     * Plans every step up to the target format against the project as it
+     * is now, for the person to read before anything is written.
      *
      * @return list<ProjectUpgradePlan>
      */
-    public function createPlans(ProjectUpgradeContext $context): array
+    public function createPlans(ProjectUpgradeContext $context, int $targetVersion): array
     {
         return array_map(
             static fn(ProjectUpgradeStepInterface $step): ProjectUpgradePlan => $step->createPlan($context),
-            $this->getPendingSteps($this->getRecordedVersion($context)),
+            $this->getPendingSteps($this->getRecordedVersion($context), $targetVersion),
         );
     }
 
     /**
-     * Runs every pending step. Each is planned again just before it is
-     * applied, so it reads what the previous steps wrote.
+     * Runs every step up to the target format. Each is planned again just
+     * before it is applied, so it reads what the previous steps wrote.
      *
      * @return list<ProjectUpgradeReport>
      */
-    public function runPendingSteps(ProjectUpgradeContext $context): array
+    public function runPendingSteps(ProjectUpgradeContext $context, int $targetVersion): array
     {
         $reports = [];
         $configPath = $context->getPath(ProjectUpgradeContext::CONFIG_FILENAME);
 
-        foreach ($this->getPendingSteps($this->getRecordedVersion($context)) as $step) {
+        foreach ($this->getPendingSteps($this->getRecordedVersion($context), $targetVersion) as $step) {
             $reports[] = $step->applyPlan($context, $step->createPlan($context));
             ProjectConfigFile::setFormatVersion($configPath, $step->getTargetVersion());
         }

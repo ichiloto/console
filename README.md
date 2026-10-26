@@ -29,7 +29,7 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
-- `ichiloto upgrade` for converting a project made for an older engine to the current project format
+- `ichiloto upgrade` for converting a project to the format its Engine reads
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
 - `ichiloto generate:map` for complete Engine 0.5 map scaffolding, created with its kind (`--kind`, one of the project's tilesets; asked when omitted)
@@ -329,10 +329,15 @@ readable at forty columns.
 ### Upgrading an existing project
 
 A project records its format version as `"format"` in `ichiloto.json`; a
-project without one is format 0. The game and the editor refuse a project
-whose format is not the engine's, and `ichiloto play` and `ichiloto validate`
-stop before launching or reading it, printing the engine's explanation. From
-the project root, run:
+project without one is format 0. The project's own Engine, the one its
+Composer install provides, decides the format the project must be at: the
+game and the editor refuse any other. A project without a Composer install is
+read by the Console's Engine. `ichiloto play`, `ichiloto edit`,
+`ichiloto validate` and `ichiloto upgrade` all ask that Engine, so they agree
+about a project and stop before launching or reading it with the same
+remedy: run the upgrade, update the Console when it does not yet carry the
+steps up to that format, or update the project's Engine when the project is
+newer. From the project root, run:
 
 ```bash
 ichiloto upgrade
@@ -341,7 +346,7 @@ ichiloto validate
 
 The upgrade needs no arguments. It first lists, one line per pending format,
 what will change and how much, then asks before writing anything. It runs
-every step from the project's format to the engine's, in order, and records
+every step from the project's format to its Engine's, in order, and records
 the new format after each one, so an interrupted upgrade continues where it
 stopped. A project that is already current is left untouched.
 
