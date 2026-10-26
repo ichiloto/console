@@ -62,6 +62,7 @@
             "@php tests/legacy-project-upgrade.php",
             "@php tests/mastery-spend-upgrade.php",
             "@php tests/mastery-tree-upgrade.php",
+            "@php tests/skit-backdrop-upgrade.php",
             "@php tests/project-format-refusal.php",
             "@php tests/validate-working-directory.php",
             "@php tests/map-apply.php",

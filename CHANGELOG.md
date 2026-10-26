@@ -4,6 +4,12 @@
 
 ### Added
 
+- `ichiloto upgrade` to format 4: each skit background the dialogue catalogue
+  bound (`skits.<id>.background`) moves to that skit's own `backdrop`, found
+  by the skit's id, and the catalogue loses its `skits` key, each file in its
+  own source (`SkitBackdropStep`). A skit that already names another
+  backdrop is refused; the report names a variable only the skits read and
+  asks for a place's backdrop to move to its map or region.
 - `ichiloto map:render MAP[@X,Y,WIDTH,HEIGHT] ... --out DIR` renders maps for
   review the way the game draws them, both ways: the Terminal field's
   characters and colours as `.ans` and a page, the graphical field as a

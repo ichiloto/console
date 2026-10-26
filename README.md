@@ -354,13 +354,24 @@ stopped. A project that is already current is left untouched.
   chooses the save identity when format 1 has to add one.
 
 It ends by printing the follow-up items and writing them to
-`ichiloto-upgrade-report.md` in the project. The chain has one step:
+`ichiloto-upgrade-report.md` in the project. The chain's steps:
 
 1. **Format 1: save metadata.** Adds a permanent project id and
    `assets/Data/save-compatibility.php`, preserving metadata that already
    exists. A missing id comes from a canonical Composer package name when
    there is one, otherwise `ichiloto/<project-name>`. Never change that id
    after save files exist.
+2. **Format 2: Mastery points.** Mastery Map nodes keep their map order and
+   lose their study order, and the report asks for their SP prices.
+3. **Format 3: the shared mastery tree.** Each node's skill and region move
+   from the characters' maps onto the tree under the same ids.
+4. **Format 4: skit backdrops follow the place.** Each background the
+   dialogue catalogue bound to a skit (`skits.<id>.background`) moves to that
+   skit's own `backdrop`, so it shows what it showed before, and the
+   catalogue loses its `skits` key, each file in its own source. A skit that
+   already names another backdrop is refused. The report then asks you to
+   move a backdrop that belongs to a place onto the map's Skit Backdrop (or
+   its region) and set the skit's Backdrop to None.
 
 ## FIGlet Generation
 
