@@ -1,10 +1,19 @@
 #!/usr/bin/env php
 <?php
 
-if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
-    require_once __DIR__ . '/../vendor/autoload.php';
-} elseif (file_exists(__DIR__ . '/../../../vendor/autoload.php')) {
-    require_once __DIR__ . '/../../../vendor/autoload.php';
+// Composer's bin proxy names the autoloader of the project that installed
+// the Console (a global install included); a checkout has its own vendor,
+// and an installed package sits in vendor/ichiloto/console.
+$autoloadPath = $GLOBALS['_composer_autoload_path'] ?? null;
+
+if (! is_string($autoloadPath) || ! file_exists($autoloadPath)) {
+    $autoloadPath = file_exists(__DIR__ . '/../vendor/autoload.php')
+        ? __DIR__ . '/../vendor/autoload.php'
+        : __DIR__ . '/../../../autoload.php';
+}
+
+if (file_exists($autoloadPath)) {
+    require_once $autoloadPath;
 } else {
     echo 'You must set up the project dependencies, run the following commands:'.PHP_EOL.
         'curl -s http://getcomposer.org/installer | php'.PHP_EOL.
