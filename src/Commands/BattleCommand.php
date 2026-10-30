@@ -20,6 +20,7 @@ use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Editor\Database\ProjectTroopKeeper;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
@@ -528,7 +529,7 @@ class BattleCommand extends Command
       return;
     }
 
-    $this->line($output, sprintf('    one seeded attack each on %s, not a rate across the run', $target->name), 'fg=gray');
+    $this->line($output, sprintf('    one seeded inherent attack each on %s, not a rate across the run', $target->name), 'fg=gray');
 
     foreach ($party->battlers->toArray() as $attacker) {
       if (! $attacker instanceof CharacterInterface) {
@@ -614,8 +615,10 @@ class BattleCommand extends Command
     $this->line($output, '  What this report cannot say', 'options=bold');
 
     foreach ([
-      'Simulated battlers attack. They do not guard, cast, or use items, so no',
-      'guarded, cast or item outcome appears in a run at all.',
+      'Party members attack with their inherent attack; enemies choose from',
+      'their action patterns as they do in play. Nobody guards or uses items',
+      'by choice, and party members never cast, so a fight a player would',
+      'heal or buff through reads harder here than it plays.',
       '',
       'Miss, critical, guard and Weak/Resist/Null/Absorb rates across a run are',
       'not reported. They are typed per hit on CombatHitResult, which the',
@@ -686,7 +689,9 @@ class BattleCommand extends Command
 
   /**
    * Runs the arena with the setup, which opens on its list of troops;
-   * naming one skips straight to that fight.
+   * naming one skips straight to that fight. A troop composed there and
+   * kept is written into the project's troops by the Editor
+   * ({@see ProjectTroopKeeper}), which keeps the rest of the file as it is.
    */
   protected function runArena(string $projectName, string $troop, BattleTestSetup $setup): void
   {
@@ -694,6 +699,7 @@ class BattleCommand extends Command
       'starting_scene' => ArenaScene::class,
       'arena_troop' => $troop,
       ArenaScene::SETUP_OPTION => $setup,
+      ArenaScene::KEEPER_OPTION => new ProjectTroopKeeper(getcwd() ?: '.'),
     ])->run();
   }
 
@@ -801,7 +807,7 @@ class BattleCommand extends Command
 
   /**
    * Refuses a test loadout in a simulation, which would report numbers that
-   * never used it: the simulator has every battler attack, so commands,
+   * never used it: the simulator has every party member attack, so commands,
    * skills and summons change nothing there.
    *
    * @throws InvalidArgumentException When a member carries a loadout.
@@ -811,7 +817,7 @@ class BattleCommand extends Command
     foreach ($setup->members as $member) {
       if (($member->commands ?? null) !== null || ($member->skills ?? []) !== [] || ($member->summons ?? []) !== []) {
         throw new InvalidArgumentException(sprintf(
-          '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every battler attack, so'
+          '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every party member attack, so'
           . ' its numbers would never exercise them. Leave out --runs to play the fight and use them; levels and'
           . ' equipment still simulate.',
           $member->actorId,
@@ -1007,7 +1013,7 @@ class BattleCommand extends Command
     // The seed is what makes a run repeatable, and the simulation's own
     // limits are part of reading its numbers honestly.
     $this->line($output, sprintf('    seed %d', $report->seed), 'fg=gray');
-    $this->line($output, '    Simulated battlers attack; they do not guard, cast, or use items.', 'fg=gray');
+    $this->line($output, '    Party members attack; enemies use their action patterns. Nobody guards or uses items by choice.', 'fg=gray');
     $output->writeln('');
   }
 

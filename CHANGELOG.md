@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `ichiloto upgrade` to format 4: each skit background the dialogue catalogue
+  bound (`skits.<id>.background`) moves to that skit's own `backdrop`, found
+  by the skit's id, and the catalogue loses its `skits` key, each file in its
+  own source (`SkitBackdropStep`). A skit that already names another
+  backdrop is refused; the report names a variable only the skits read and
+  asks for a place's backdrop to move to its map or region.
+- `ichiloto map:render MAP[@X,Y,WIDTH,HEIGHT] ... --out DIR` renders maps for
+  review the way the game draws them, both ways: the Terminal field's
+  characters and colours as `.ans` and a page, the graphical field as a
+  native PNG (and a scaled one with `--scale`), and one `review.html` with
+  them side by side. `--player X,Y[,HEADING]` and `--actor ID` stand someone
+  on a cell, `--views FILE` gives each view its own region, subject and
+  label, and `--changes BATCH` renders a batch before it is applied, writing
+  nothing.
+### Fixed
+
+- Commands that open a whole project in their own process (`map:apply`,
+  `map:convert-kinds`, `validate`, `edit`, `edit:host`) raise PHP's memory
+  limit to the 512M every Ichiloto project process runs with, keeping a
+  higher one. Converting Last Legend's 181 x 61 overworld needs about 230 MB
+  and ran out of memory under PHP's default 128M.
+
 ## 0.5.0
 
 Ichiloto Console 0.5.0 brings the Engine 0.5 runtime and Editor 0.5 authoring

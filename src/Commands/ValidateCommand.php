@@ -2,8 +2,9 @@
 
 namespace Ichiloto\Console\Commands;
 
-use Ichiloto\Console\Support\ProjectFormatCheck;
 use Ichiloto\Editor\Actors\ActorIdentityMigration;
+use Ichiloto\Console\Support\ProjectMemory;
+use Ichiloto\Console\Upgrade\ProjectFormatStatus;
 use Ichiloto\Editor\ProjectWorkspace;
 use Ichiloto\Editor\Validation\ActorReferenceValidator;
 use Ichiloto\Editor\Validation\Issue;
@@ -46,7 +47,14 @@ class ValidateCommand extends Command
     $workingDirectory = realpath($workingDirectory) ?: $workingDirectory;
 
     $this->bootstrapDependencies($workingDirectory);
-    $formatProblem = ProjectFormatCheck::getProblem($workingDirectory);
+
+    try {
+      $formatProblem = ProjectFormatStatus::read($workingDirectory)->problem;
+    } catch (Throwable $throwable) {
+      $output->writeln('<error>The project could not be read: ' . OutputFormatter::escape($throwable->getMessage()) . '</error>');
+
+      return Command::FAILURE;
+    }
 
     if ($formatProblem !== null) {
       // Older data would only produce misleading errors; the upgrade is what the project needs.
@@ -238,6 +246,7 @@ class ValidateCommand extends Command
    */
   protected function bootstrapDependencies(string $workingDirectory): void
   {
+    ProjectMemory::raise();
     load_engine_autoloader($workingDirectory);
   }
 }

@@ -29,10 +29,11 @@ The CLI currently ships these commands:
 - `ichiloto new` for guided project creation with a quest-like interactive flow
 - `ichiloto edit` for opening an Ichiloto project in the terminal editor
 - `ichiloto play` for running a project's main entrypoint
-- `ichiloto upgrade` for converting a project made for an older engine to the current project format
+- `ichiloto upgrade` for converting a project to the format its Engine reads
 - `ichiloto validate` for checking a project's content and save metadata
 - `ichiloto generate:figlet` for forging terminal title art, menu banners, and wordmarks
 - `ichiloto generate:map` for complete Engine 0.5 map scaffolding, created with its kind (`--kind`, one of the project's tilesets; asked when omitted)
+- `ichiloto map:convert-kinds` for converting a glyph-keyed map to its tileset's terrain kinds: without `--kind` it lists the map's glyphs and the kinds; with `--kind ';=grassland' --kind '~=water' ...` it previews each mapping's cells and collision changes, then converts through the editor's validated change set (`--check` writes nothing, `--relocate-saves` moves saves off newly solid cells)
 - `ichiloto generate:actor` for lightweight actor scaffolding
 - `ichiloto battle` for playing a fight from the arena, or simulating it to balance it
 - `ichiloto renderer:install` for installing a verified renderer package into a project's Engine (no Rust or build tools required)
@@ -244,6 +245,15 @@ with a new party holding 99 of each item and a new troop. In the arena, go down
 from the troop list into the party to change each member's actor, level and
 equipment.
 
+After the troops, **Compose a test troop** builds a troop just for testing:
+add enemies from the project's enemies, fight them, and choose **Keep as a
+troop** to add them to `assets/Data/troops.php` as a new troop named after its
+members, written through the Editor so the rest of the file stays as it was.
+Under the GPUI renderer the arena is drawn in the game's menu theme with the
+battle's own stage beside the list: the troop under the cursor (or the test
+troop) on the chosen arena with the party standing on it; left and right
+choose the arena, and a test troop's members can be moved on the stage.
+
 The party can also be set up on the command line, one `--member` per member
 (up to four), as `Actor[:level][,Slot=item...]`; actors and items go by id or
 name. Without `--member` it is the starting party. Anything the party cannot be
@@ -267,7 +277,7 @@ Each is a list separated by `|`. The grants exist only in the fresh test
 party; they change no campaign progress. Costs, targets and the summon's own
 rules still apply, and a summon the member cannot hold is refused like any
 other problem. Loadouts are for playing a fight: `--runs` refuses them, because
-its simulator has every battler attack and would never use them.
+its simulator has every party member attack and would never use them.
 
 ```bash
 ichiloto battle --member "Kaelion:20,Commands=attack|skill|summon|item,Summons=djin" --member "Liora:20,Skills=Burn I|Heal I" --troop "Loch Ness"
@@ -280,6 +290,13 @@ repeatedly, with the same party, and reports what the fight *is*:
 ```bash
 ichiloto battle --member Kaelion:20 --troop "Bat x 2" --runs 100
 ```
+
+Each side acts with nobody choosing for it. A party member attacks with its
+inherent attack, the `attackSkill` its actor authors or the built-in attack.
+An enemy chooses from its authored action patterns exactly as it does in play,
+falling back to its own `attackSkill` or the built-in attack. States tick and
+guards end as they do in a live turn. Nobody guards, casts or uses items by
+choice, so a fight a player would heal through reads harder here.
 
 The report opens with the party as fought — each member's level, what each
 slot holds by display name and stable id, the permanent growth it carries
@@ -294,8 +311,8 @@ Everything the report prints is the engine's own projection. Nothing is
 recalculated here, and where the engine does not aggregate something across a
 run — miss, critical, Guard and elemental-outcome rates — the report says so
 and names what would supply it, rather than inferring a number. One seeded
-attack per battler is shown from the simulator's preview seam, labelled as
-the single resolved action it is.
+inherent attack per party member is shown from the simulator's preview seam,
+labelled as the single resolved action it is.
 
 The report is a reading of the project, not a rehearsal on it. Everything a
 party or a troop holds is recorded before anything runs and put back before
@@ -312,10 +329,15 @@ readable at forty columns.
 ### Upgrading an existing project
 
 A project records its format version as `"format"` in `ichiloto.json`; a
-project without one is format 0. The game and the editor refuse a project
-whose format is not the engine's, and `ichiloto play` and `ichiloto validate`
-stop before launching or reading it, printing the engine's explanation. From
-the project root, run:
+project without one is format 0. The project's own Engine, the one its
+Composer install provides, decides the format the project must be at: the
+game and the editor refuse any other. A project without a Composer install is
+read by the Console's Engine. `ichiloto play`, `ichiloto edit`,
+`ichiloto validate` and `ichiloto upgrade` all ask that Engine, so they agree
+about a project and stop before launching or reading it with the same
+remedy: run the upgrade, update the Console when it does not yet carry the
+steps up to that format, or update the project's Engine when the project is
+newer. From the project root, run:
 
 ```bash
 ichiloto upgrade
@@ -324,7 +346,7 @@ ichiloto validate
 
 The upgrade needs no arguments. It first lists, one line per pending format,
 what will change and how much, then asks before writing anything. It runs
-every step from the project's format to the engine's, in order, and records
+every step from the project's format to its Engine's, in order, and records
 the new format after each one, so an interrupted upgrade continues where it
 stopped. A project that is already current is left untouched.
 
@@ -337,13 +359,24 @@ stopped. A project that is already current is left untouched.
   chooses the save identity when format 1 has to add one.
 
 It ends by printing the follow-up items and writing them to
-`ichiloto-upgrade-report.md` in the project. The chain has one step:
+`ichiloto-upgrade-report.md` in the project. The chain's steps:
 
 1. **Format 1: save metadata.** Adds a permanent project id and
    `assets/Data/save-compatibility.php`, preserving metadata that already
    exists. A missing id comes from a canonical Composer package name when
    there is one, otherwise `ichiloto/<project-name>`. Never change that id
    after save files exist.
+2. **Format 2: Mastery points.** Mastery Map nodes keep their map order and
+   lose their study order, and the report asks for their SP prices.
+3. **Format 3: the shared mastery tree.** Each node's skill and region move
+   from the characters' maps onto the tree under the same ids.
+4. **Format 4: skit backdrops follow the place.** Each background the
+   dialogue catalogue bound to a skit (`skits.<id>.background`) moves to that
+   skit's own `backdrop`, so it shows what it showed before, and the
+   catalogue loses its `skits` key, each file in its own source. A skit that
+   already names another backdrop is refused. The report then asks you to
+   move a backdrop that belongs to a place onto the map's Skit Backdrop (or
+   its region) and set the skit's Backdrop to None.
 
 ## FIGlet Generation
 

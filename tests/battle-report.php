@@ -435,7 +435,7 @@ try {
         // Caps, cap loss and headroom come from Character::resolveStats().
         'to the 999 cap',
         'natural',
-        'one seeded attack each on',
+        'one seeded inherent attack each on',
     ] as $expected) {
         if (! str_contains($first['output'], $expected)) {
             fail(sprintf('The report is missing "%s".', $expected));
@@ -445,7 +445,7 @@ try {
     // -- The disclosures -------------------------------------------------
 
     foreach ([
-        'Simulated battlers attack; they do not guard, cast, or use items.',
+        'Party members attack; enemies use their action patterns. Nobody guards or uses items by choice.',
         'What this report cannot say',
         'SimulationReport',
         'CombatHitResult',
@@ -568,6 +568,9 @@ try {
             $data = (static fn(): mixed => require $temporaryRoot . "/assets/Data/Actors/{$member}.php")();
 
             if (is_array($data) && isset($data['data'])) {
+                // The probe blade's element rides the built-in attack; an
+                // authored attack skill resolves with its own element instead.
+                unset($data['data']['attackSkill']);
                 $members[] = $data['data'];
             }
         }
@@ -641,9 +644,14 @@ try {
             fail('The report changed something on the battle checklist: ' . json_encode(battleChecklist($party, $troop)));
         }
 
-        // The comparison has teeth: the same simulation without the boundary
-        // leaves the critical and elemental feedback, and more, changed.
-        new \Ichiloto\Engine\Battle\Simulation\BattleSimulator()->simulate($party, $troop, 5);
+        // The comparison has teeth: a simulated run fights clones, but the
+        // report's previews swing at the loaded target itself, so the same
+        // previews without the boundary leave the critical and elemental
+        // feedback, and more, changed.
+        $simulator = new \Ichiloto\Engine\Battle\Simulation\BattleSimulator();
+        foreach ($party->battlers->toArray() as $member) {
+            $simulator->previewAttack($member, $target);
+        }
         $naked = stateChanges($before, deepState(...$participants));
         $flags = array_filter(
             $naked,
@@ -651,14 +659,14 @@ try {
         );
 
         if ($flags === []) {
-            fail('Simulating without the boundary left no feedback flag changed, so the comparison could not fail: ' . implode('; ', $naked));
+            fail('Previewing without the boundary left no feedback flag changed, so the comparison could not fail: ' . implode('; ', $naked));
         }
 
         // The recording taken at load puts that mutated world back exactly.
         $loaded->restore();
 
         if (stateChanges($before, deepState(...$participants)) !== []) {
-            fail('Restoring after a naked simulation did not return the participants to their loaded state.');
+            fail('Restoring after naked previews did not return the participants to their loaded state.');
         }
 
         // A controlled failure in the middle of the report -- while a
@@ -752,7 +760,7 @@ try {
         $inSection = false;
 
         foreach (explode("\n", $output) as $line) {
-            if (str_contains($line, 'one seeded attack each on')) {
+            if (str_contains($line, 'one seeded inherent attack each on')) {
                 $inSection = true;
 
                 continue;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Support\ChangeOutcomeReport;
 use Ichiloto\Console\Support\EditorProjectBootstrap;
 use Ichiloto\Editor\Session\ChangeBatch;
 use Ichiloto\Editor\Session\InvalidRequest;
@@ -62,42 +63,11 @@ final class MapApplyCommand extends Command
         if ($input->getOption('json')) {
             $output->writeln((string) json_encode($outcome, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         } else {
-            $this->report($output, $outcome);
+            ChangeOutcomeReport::write($output, $outcome);
         }
 
         return $outcome['status'] === 'saved' || ($outcome['status'] === 'checked' && $outcome['blocking'] === 0)
             ? Command::SUCCESS
             : Command::FAILURE;
-    }
-
-    /**
-     * Prints what the batch did and what validation found.
-     *
-     * @param array<string, mixed> $outcome
-     */
-    private function report(OutputInterface $output, array $outcome): void
-    {
-        $output->writeln('');
-        $output->writeln(match ($outcome['status']) {
-            'saved' => sprintf('<info>Saved</info> %s.', implode(', ', $outcome['saved']) ?: 'nothing; no map changed'),
-            'checked' => sprintf('<info>Checked</info> %s; nothing was written.', implode(', ', $outcome['maps']) ?: 'no map changed'),
-            'refused' => sprintf('<error> Refused </error> %s Nothing was written.', OutputFormatter::escape((string) ($outcome['reason'] ?? ''))),
-            default => sprintf('<error> Failed </error> %s%s Nothing was written.',
-                $outcome['step'] === null ? '' : sprintf('Change %d (%s): ', $outcome['step'], $outcome['method'] ?? '?'),
-                OutputFormatter::escape((string) $outcome['message'])),
-        });
-
-        foreach ($outcome['issues'] ?? [] as $issue) {
-            $marker = $issue['severity'] === 'error' ? '<error> ! </error>' : '<comment> ? </comment>';
-            $output->writeln(sprintf('  %s %s: %s', $marker, OutputFormatter::escape((string) ($issue['map'] ?? $issue['where'])),
-                OutputFormatter::escape($issue['message'])));
-            if ($issue['hint'] !== '') {
-                $output->writeln('        <fg=gray>' . OutputFormatter::escape($issue['hint']) . '</>');
-            }
-        }
-        foreach ($outcome['relocated'] ?? [] as $move) {
-            $output->writeln('  ' . OutputFormatter::escape($move));
-        }
-        $output->writeln('');
     }
 }
