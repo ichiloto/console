@@ -4,8 +4,10 @@ namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Console\Battle\BattleMemberOption;
 use Ichiloto\Console\Battle\ParticipantSnapshot;
-use Ichiloto\Console\Renderer\RendererRegistry;
-use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Launch\LaunchRequest;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
+use Ichiloto\Console\Launch\LaunchTargetSource;
+use Ichiloto\Console\Launch\RendererLaunchTargets;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\RendererUpdateOffer;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
@@ -20,6 +22,7 @@ use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Editor\Database\ProjectTroopKeeper;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
@@ -52,9 +55,9 @@ use Throwable;
 )]
 class BattleCommand extends Command
 {
-  private readonly RendererRegistry $rendererRegistry;
+  private readonly LaunchTargetSource $rendererTargets;
 
-  private readonly RendererSelector $rendererSelector;
+  private readonly LaunchTargetSelector $launchTargetSelector;
 
   private readonly TerminalInteractivity $terminalInteractivity;
 
@@ -64,15 +67,15 @@ class BattleCommand extends Command
    * @param (callable(string, array<string, string>): (int|string))|null $rendererUpdatePrompt
    */
   public function __construct(
-    ?RendererRegistry $rendererRegistry = null,
-    ?RendererSelector $rendererSelector = null,
+    ?LaunchTargetSource $rendererTargets = null,
+    ?LaunchTargetSelector $launchTargetSelector = null,
     ?TerminalInteractivity $terminalInteractivity = null,
     ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
     ?SourceRendererUpdater $rendererUpdater = null,
     ?callable $rendererUpdatePrompt = null,
   ) {
-    $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
-    $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
+    $this->rendererTargets = $rendererTargets ?? new RendererLaunchTargets();
+    $this->launchTargetSelector = $launchTargetSelector ?? new LaunchTargetSelector();
     $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
     $this->rendererUpdateOffer = new RendererUpdateOffer($rendererUpdateChecker, $rendererUpdater,
       $this->terminalInteractivity, $rendererUpdatePrompt);
@@ -91,10 +94,9 @@ class BattleCommand extends Command
         sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]; repeat for each, up to %d. Without it, the starting party.',
           class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
       ->addOption('arena', 'a', InputOption::VALUE_REQUIRED,
-        'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.')
-      ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
-        sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
-      ->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Play the battle in the GPUI renderer.');
+        'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.');
+    LaunchRequest::addOptions($this, $this->rendererTargets, 'Renderer to play the battle in', 'renderers');
+    $this->setHelp($this->getHelp() . "\n\nA simulation with --runs draws nothing, so it refuses --renderer and --gui.");
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
@@ -121,8 +123,16 @@ class BattleCommand extends Command
 
     $playing = $input->getOption('runs') === null;
 
+    try {
+      $launchRequest = LaunchRequest::fromInput($input);
+    } catch (InvalidArgumentException $exception) {
+      $output->writeln($exception->getMessage());
+
+      return Command::INVALID;
+    }
+
     // A simulation draws nothing, so a renderer is a mistake to point out.
-    if (! $playing && ($input->getOption('renderer') !== null || (bool) $input->getOption('gpui-renderer'))) {
+    if (! $playing && $launchRequest->hasChoice) {
       $output->writeln('A renderer applies to playing a battle, not to simulating one with --runs.');
 
       return Command::INVALID;
@@ -178,32 +188,27 @@ class BattleCommand extends Command
     // Playing the fight is the point; simulating it is what you do once you
     // have played it and want to know what it does a hundred times over.
     if ($playing) {
-      $rendererOption = $input->getOption('renderer');
-      if ($rendererOption !== null && ! is_string($rendererOption)) {
-        $output->writeln('The renderer option must be a renderer ID.');
-
-        return Command::INVALID;
-      }
       try {
-        $renderer = $this->rendererSelector->resolve(
-          rendererOption: $rendererOption,
-          gpuiAlias: (bool) $input->getOption('gpui-renderer'),
+        $rendererId = $this->launchTargetSelector->selectTarget(
+          request: $launchRequest,
+          targets: $this->rendererTargets,
+          projectDirectory: $workingDirectory,
           canPrompt: $input->isInteractive() && $this->terminalInteractivity->supportsPrompts(),
         );
-      } catch (InvalidArgumentException $exception) {
+      } catch (\RuntimeException|InvalidArgumentException $exception) {
         $output->writeln($exception->getMessage());
 
         return Command::INVALID;
       }
       // Only a graphical renderer draws an arena; the terminal draws the battle its own way.
-      if ($arena !== null && $renderer->id === 'terminal') {
+      if ($arena !== null && $rendererId === LaunchRequest::TERMINAL_ID) {
         $output->writeln('An arena is drawn by a graphical renderer; the terminal renderer draws none. Choose one with --renderer.');
 
         return Command::INVALID;
       }
-      $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
+      $this->rendererUpdateOffer->offer($workingDirectory, $rendererId, $input, $output);
 
-      return $this->play($workingDirectory, $input->getOption('troop'), $renderer->id, $setup, $output);
+      return $this->play($workingDirectory, $input->getOption('troop'), $rendererId, $setup, $output);
     }
 
     if ($troops === [] || ! $party instanceof Party) {
@@ -528,7 +533,7 @@ class BattleCommand extends Command
       return;
     }
 
-    $this->line($output, sprintf('    one seeded attack each on %s, not a rate across the run', $target->name), 'fg=gray');
+    $this->line($output, sprintf('    one seeded inherent attack each on %s, not a rate across the run', $target->name), 'fg=gray');
 
     foreach ($party->battlers->toArray() as $attacker) {
       if (! $attacker instanceof CharacterInterface) {
@@ -614,8 +619,10 @@ class BattleCommand extends Command
     $this->line($output, '  What this report cannot say', 'options=bold');
 
     foreach ([
-      'Simulated battlers attack. They do not guard, cast, or use items, so no',
-      'guarded, cast or item outcome appears in a run at all.',
+      'Party members attack with their inherent attack; enemies choose from',
+      'their action patterns as they do in play. Nobody guards or uses items',
+      'by choice, and party members never cast, so a fight a player would',
+      'heal or buff through reads harder here than it plays.',
       '',
       'Miss, critical, guard and Weak/Resist/Null/Absorb rates across a run are',
       'not reported. They are typed per hit on CombatHitResult, which the',
@@ -686,7 +693,9 @@ class BattleCommand extends Command
 
   /**
    * Runs the arena with the setup, which opens on its list of troops;
-   * naming one skips straight to that fight.
+   * naming one skips straight to that fight. A troop composed there and
+   * kept is written into the project's troops by the Editor
+   * ({@see ProjectTroopKeeper}), which keeps the rest of the file as it is.
    */
   protected function runArena(string $projectName, string $troop, BattleTestSetup $setup): void
   {
@@ -694,6 +703,7 @@ class BattleCommand extends Command
       'starting_scene' => ArenaScene::class,
       'arena_troop' => $troop,
       ArenaScene::SETUP_OPTION => $setup,
+      ArenaScene::KEEPER_OPTION => new ProjectTroopKeeper(getcwd() ?: '.'),
     ])->run();
   }
 
@@ -801,7 +811,7 @@ class BattleCommand extends Command
 
   /**
    * Refuses a test loadout in a simulation, which would report numbers that
-   * never used it: the simulator has every battler attack, so commands,
+   * never used it: the simulator has every party member attack, so commands,
    * skills and summons change nothing there.
    *
    * @throws InvalidArgumentException When a member carries a loadout.
@@ -811,7 +821,7 @@ class BattleCommand extends Command
     foreach ($setup->members as $member) {
       if (($member->commands ?? null) !== null || ($member->skills ?? []) !== [] || ($member->summons ?? []) !== []) {
         throw new InvalidArgumentException(sprintf(
-          '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every battler attack, so'
+          '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every party member attack, so'
           . ' its numbers would never exercise them. Leave out --runs to play the fight and use them; levels and'
           . ' equipment still simulate.',
           $member->actorId,
@@ -1007,7 +1017,7 @@ class BattleCommand extends Command
     // The seed is what makes a run repeatable, and the simulation's own
     // limits are part of reading its numbers honestly.
     $this->line($output, sprintf('    seed %d', $report->seed), 'fg=gray');
-    $this->line($output, '    Simulated battlers attack; they do not guard, cast, or use items.', 'fg=gray');
+    $this->line($output, '    Party members attack; enemies use their action patterns. Nobody guards or uses items by choice.', 'fg=gray');
     $output->writeln('');
   }
 

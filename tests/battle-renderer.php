@@ -11,7 +11,8 @@ declare(strict_types=1);
 
 use Ichiloto\Console\Commands\BattleCommand;
 use Ichiloto\Console\Renderer\RendererRegistry;
-use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
+use Ichiloto\Console\Launch\RendererLaunchTargets;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
@@ -49,8 +50,8 @@ function runBattleRenderer(string $project, array $options, ?callable $prompt = 
 {
     $registry = new RendererRegistry();
     $command = new RecordingBattleCommand(
-        rendererRegistry: $registry,
-        rendererSelector: new RendererSelector($registry, $prompt),
+        rendererTargets: new RendererLaunchTargets($registry),
+        launchTargetSelector: new LaunchTargetSelector($prompt),
         terminalInteractivity: new TerminalInteractivity(static fn (): bool => true, static fn (): bool => true),
         rendererUpdateChecker: new SourceRendererUpdateChecker(locateEngine: static fn (string $root): string => $root),
     );

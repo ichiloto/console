@@ -5,7 +5,9 @@ declare(strict_types=1);
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Renderer\RendererDescriptor;
 use Ichiloto\Console\Renderer\RendererRegistry;
-use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Launch\LaunchRequest;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
+use Ichiloto\Console\Launch\RendererLaunchTargets;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
@@ -39,11 +41,9 @@ function rendererTestCommand(
     bool $inputIsTty = true,
     bool $outputIsTty = true,
 ): PlayCommand {
-    $registry = new RendererRegistry();
-
     return new PlayCommand(
-        rendererRegistry: $registry,
-        rendererSelector: new RendererSelector($registry, $prompt),
+        rendererTargets: new RendererLaunchTargets(new RendererRegistry()),
+        launchTargetSelector: new LaunchTargetSelector($prompt),
         terminalInteractivity: new TerminalInteractivity(
             static fn (): bool => $inputIsTty,
             static fn (): bool => $outputIsTty,
@@ -329,17 +329,21 @@ $noPrompt = static function () use (&$promptCalls): never {
     $promptCalls++;
     failRendererSelectionTest('Renderer selection prompted unexpectedly.');
 };
-$selector = new RendererSelector($registry, $noPrompt);
+$selector = new LaunchTargetSelector($noPrompt);
+$targets = new RendererLaunchTargets($registry);
+$alias = ['--gpui-renderer'];
+$select = static fn (LaunchTargetSelector $selector, ?string $id, array $flags, bool $canPrompt): string
+    => $selector->selectTarget(new LaunchRequest($id, $flags), $targets, sys_get_temp_dir(), $canPrompt);
 
-assertRendererSelection($selector->resolve('terminal', false, true)->id === 'terminal', '--renderer=terminal did not resolve terminal.');
-assertRendererSelection($selector->resolve('gpui', false, true)->id === 'gpui', '--renderer=gpui did not resolve GPUI.');
-assertRendererSelection($selector->resolve(null, true, true)->id === 'gpui', '--gpui-renderer did not resolve GPUI.');
-assertRendererSelection($selector->resolve('gpui', true, true)->id === 'gpui', 'Agreeing GPUI options were rejected.');
-assertRendererSelection($selector->resolve(null, false, false)->id === 'terminal', 'Non-interactive selection did not default to terminal.');
+assertRendererSelection($select($selector, 'terminal', [], true) === 'terminal', '--renderer=terminal did not resolve terminal.');
+assertRendererSelection($select($selector, 'gpui', [], true) === 'gpui', '--renderer=gpui did not resolve GPUI.');
+assertRendererSelection($select($selector, null, $alias, true) === 'gpui', '--gpui-renderer did not resolve GPUI.');
+assertRendererSelection($select($selector, 'gpui', $alias, true) === 'gpui', 'Agreeing GPUI options were rejected.');
+assertRendererSelection($select($selector, null, [], false) === 'terminal', 'Non-interactive selection did not default to terminal.');
 assertRendererSelection($promptCalls === 0, 'An explicit or non-interactive selection prompted.');
 
 try {
-    $selector->resolve('terminal', true, true);
+    $select($selector, 'terminal', $alias, true);
     failRendererSelectionTest('Conflicting renderer options were accepted.');
 } catch (InvalidArgumentException $exception) {
     assertRendererSelection(str_contains($exception->getMessage(), 'conflicts'), 'The renderer conflict error is unclear.');
@@ -347,23 +351,19 @@ try {
 
 $promptLabel = '';
 $promptOptions = [];
-$terminalSelector = new RendererSelector(
-    $registry,
+$terminalSelector = new LaunchTargetSelector(
     static function (string $label, array $options) use (&$promptLabel, &$promptOptions): string {
         $promptLabel = $label;
         $promptOptions = $options;
         return 'terminal';
     },
 );
-assertRendererSelection($terminalSelector->resolve(null, false, true)->id === 'terminal', 'Interactive Native Terminal selection failed.');
+assertRendererSelection($select($terminalSelector, null, [], true) === 'terminal', 'Interactive Native Terminal selection failed.');
 assertRendererSelection($promptLabel === 'Select renderer', 'The interactive selector label is incorrect.');
 assertRendererSelection($promptOptions === $registry->options(), 'The interactive selector options differ from the registry.');
 
-$gpuiSelector = new RendererSelector(
-    $registry,
-    static fn (string $label, array $options): string => 'gpui',
-);
-assertRendererSelection($gpuiSelector->resolve(null, false, true)->id === 'gpui', 'Interactive GPUI selection failed.');
+$gpuiSelector = new LaunchTargetSelector(static fn (string $label, array $options): string => 'gpui');
+assertRendererSelection($select($gpuiSelector, null, [], true) === 'gpui', 'Interactive GPUI selection failed.');
 
 assertRendererSelection(
     ! (new TerminalInteractivity(static fn (): bool => false, static fn (): bool => true))->supportsPrompts(),

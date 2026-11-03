@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Renderer;
 
+use Ichiloto\Console\Support\ProjectMemory;
 use Ichiloto\Console\Support\RendererPreparationProcess;
 use JsonException;
 use RuntimeException;
@@ -57,7 +58,7 @@ try {
 }
 PHP;
         $response = $this->process->run([
-            PHP_BINARY, '-d', 'memory_limit=512M', '-d', 'display_errors=stderr', '-d', 'log_errors=0',
+            PHP_BINARY, '-d', 'memory_limit=' . ProjectMemory::LIMIT, '-d', 'display_errors=stderr', '-d', 'log_errors=0',
             '-r', $probe, $autoload,
         ], $directory, timeoutSeconds: $this->timeoutSeconds);
         try {

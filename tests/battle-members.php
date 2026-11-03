@@ -12,7 +12,8 @@ declare(strict_types=1);
 
 use Ichiloto\Console\Commands\BattleCommand;
 use Ichiloto\Console\Renderer\RendererRegistry;
-use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
+use Ichiloto\Console\Launch\RendererLaunchTargets;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
@@ -52,8 +53,8 @@ function runBattleMembers(string $project, array $members, array $options = []):
     new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, []);
     $registry = new RendererRegistry();
     $command = new SetupRecordingBattleCommand(
-        rendererRegistry: $registry,
-        rendererSelector: new RendererSelector($registry),
+        rendererTargets: new RendererLaunchTargets($registry),
+        launchTargetSelector: new LaunchTargetSelector(),
         terminalInteractivity: new TerminalInteractivity(static fn (): bool => false, static fn (): bool => false),
         rendererUpdateChecker: new SourceRendererUpdateChecker(locateEngine: static fn (string $root): string => $root),
     );
@@ -93,8 +94,8 @@ try {
         && str_contains($display, 'has no Cape slot'),
         'every problem with the members is named, and no battle starts');
 
-    [, $status, $display] = runBattleMembers($project, ['hero', 'hero', 'hero', 'hero', 'hero']);
-    assertBattleMembers($status === Command::INVALID && str_contains($display, 'at most 4 members'),
+    [, $status, $display] = runBattleMembers($project, array_fill(0, BattleTestSetup::MAX_MEMBERS + 1, 'hero'));
+    assertBattleMembers($status === Command::INVALID && str_contains($display, sprintf('at most %d members', BattleTestSetup::MAX_MEMBERS)),
         'more members than a party holds are refused');
 
     if (! method_exists(\Ichiloto\Engine\Scenes\Arena\BattleTestMember::class, 'withCommands')) {

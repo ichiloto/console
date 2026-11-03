@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Support\ConsoleInstallation;
+use Ichiloto\Console\Support\ProjectEngineFormat;
 use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Console\Upgrade\GitWorkingTree;
 use Ichiloto\Console\Upgrade\ProjectFileWriter;
+use Ichiloto\Console\Upgrade\ProjectFormatStatus;
 use Ichiloto\Console\Upgrade\ProjectUpgradeChain;
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
 use Ichiloto\Console\Upgrade\UpgradeReportDocument;
@@ -20,13 +23,14 @@ use Throwable;
 use function Laravel\Prompts\confirm;
 
 /**
- * Brings a project to the engine's format: detect the version, explain each
- * pending step, protect uncommitted work, then run the chain and report what
- * needs a person.
+ * Brings a project to the format its Engine reads: detect both versions,
+ * explain each pending step, protect uncommitted work, then run the chain
+ * and report what needs a person. The project's Engine names the target, as
+ * it does for `play`; this Console only supplies the steps.
  */
 #[AsCommand(
     name: 'upgrade',
-    description: 'Convert an existing Ichiloto project to the current project format.',
+    description: 'Convert an existing Ichiloto project to the format its Engine reads.',
 )]
 final class UpgradeCommand extends Command
 {
@@ -36,6 +40,8 @@ final class UpgradeCommand extends Command
         ?ProjectUpgradeChain $chain = null,
         private readonly GitWorkingTree $git = new GitWorkingTree(),
         private readonly TerminalInteractivity $terminalInteractivity = new TerminalInteractivity(),
+        private readonly ProjectEngineFormat $engineFormat = new ProjectEngineFormat(),
+        private readonly ?ConsoleInstallation $installation = null,
     ) {
         $this->chain = $chain ?? ProjectUpgradeChain::createDefault();
         parent::__construct();
@@ -61,25 +67,29 @@ final class UpgradeCommand extends Command
                 $workingDirectory,
                 is_string($input->getOption('id')) ? $input->getOption('id') : null,
             );
-            $version = $this->chain->getRecordedVersion($context);
+            $status = ProjectFormatStatus::read($context->root, $this->chain, $this->engineFormat, $this->installation);
+            $version = $status->projectVersion;
+            $targetVersion = $status->engineVersion;
 
-            if ($version > $this->chain->currentVersion) {
-                $output->writeln(sprintf(
-                    '<error>This project uses format %d, which is newer than this Ichiloto reads (%d). Update Ichiloto instead.</error>',
-                    $version,
-                    $this->chain->currentVersion,
-                ));
-
-                return Command::FAILURE;
-            }
-
-            if ($version === $this->chain->currentVersion) {
-                $output->writeln(sprintf('<info>✓</info> No upgrade is needed; the project is already at format %d.', $version));
+            if ($targetVersion === null) {
+                $output->writeln('<info>✓</info> No upgrade is needed; the project\'s Engine predates project formats and reads the project as it is.');
 
                 return Command::SUCCESS;
             }
 
-            $plans = $this->chain->createPlans($context);
+            if ($status->isSupported) {
+                $output->writeln(sprintf('<info>✓</info> No upgrade is needed; the project is already at format %d, the format its Engine reads.', $version));
+
+                return Command::SUCCESS;
+            }
+
+            if ($version > $targetVersion || ! $status->canUpgrade) {
+                $output->writeln('<error>' . OutputFormatter::escape((string) $status->problem) . '</error>');
+
+                return Command::FAILURE;
+            }
+
+            $plans = $this->chain->createPlans($context, $targetVersion);
         } catch (Throwable $throwable) {
             $output->writeln('<error>The project could not be upgraded: ' . OutputFormatter::escape($throwable->getMessage()) . '</error>');
 
@@ -87,9 +97,9 @@ final class UpgradeCommand extends Command
         }
 
         $output->writeln(sprintf(
-            'This project is at format %d; Ichiloto reads format %d. The upgrade will:',
+            'This project is at format %d; its Engine reads format %d. The upgrade will:',
             $version,
-            $this->chain->currentVersion,
+            $targetVersion,
         ));
 
         foreach ($plans as $plan) {
@@ -136,8 +146,8 @@ final class UpgradeCommand extends Command
         }
 
         try {
-            $reports = $this->chain->runPendingSteps($context);
-            $document = new UpgradeReportDocument($version, $this->chain->currentVersion, $reports);
+            $reports = $this->chain->runPendingSteps($context, $targetVersion);
+            $document = new UpgradeReportDocument($version, $targetVersion, $reports);
             $reportPath = $context->getPath(UpgradeReportDocument::FILENAME);
             new ProjectFileWriter()->writeAtomically($reportPath, $document->renderMarkdown());
         } catch (Throwable $throwable) {
@@ -148,7 +158,7 @@ final class UpgradeCommand extends Command
             return Command::FAILURE;
         }
 
-        $output->writeln(sprintf('<info>✓</info> Upgraded the project to format %d.', $this->chain->currentVersion));
+        $output->writeln(sprintf('<info>✓</info> Upgraded the project to format %d.', $targetVersion));
 
         foreach ($document->getFollowUps() as $heading => $sections) {
             $output->writeln('');

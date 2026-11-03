@@ -101,7 +101,7 @@ final class TerminalSessionLauncher
                 }
             }
             $opener = $this->window->open([
-                PHP_BINARY, '-d', 'memory_limit=512M', '-d', 'register_argc_argv=1', __DIR__ . '/TerminalSessionWorker.php',
+                PHP_BINARY, '-d', 'memory_limit=' . ProjectMemory::LIMIT, '-d', 'register_argc_argv=1', __DIR__ . '/TerminalSessionWorker.php',
                 (string) $address, $nonce, (string) $deadline,
             ], $nonce);
             $ready = false;
