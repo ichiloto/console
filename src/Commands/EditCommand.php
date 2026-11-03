@@ -4,10 +4,16 @@ declare(strict_types=1);
 
 namespace Ichiloto\Console\Commands;
 
+use Ichiloto\Console\Launch\EditorLaunchTargets;
+use Ichiloto\Console\Launch\LaunchRequest;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
 use Ichiloto\Console\Support\EditorProjectBootstrap;
 use Ichiloto\Console\Support\GuiEditorLocator;
+use Ichiloto\Console\Support\TerminalInteractivity;
 use Ichiloto\Console\Upgrade\ProjectFormatStatus;
 use Ichiloto\Editor\Editor;
+use InvalidArgumentException;
+use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Formatter\OutputFormatter;
@@ -20,8 +26,23 @@ use Throwable;
     name: 'edit',
     description: 'Launch the given project in the editor.',
 )]
-final class EditCommand extends Command
+class EditCommand extends Command
 {
+    private readonly GuiEditorLocator $guiEditorLocator;
+
+    private readonly EditorLaunchTargets $editorTargets;
+
+    public function __construct(
+        private readonly LaunchTargetSelector $launchTargetSelector = new LaunchTargetSelector(),
+        private readonly TerminalInteractivity $terminalInteractivity = new TerminalInteractivity(),
+        ?GuiEditorLocator $guiEditorLocator = null,
+    ) {
+        $this->guiEditorLocator = $guiEditorLocator ?? GuiEditorLocator::fromEnvironment(dirname(__DIR__, 2));
+        $this->editorTargets = new EditorLaunchTargets($this->guiEditorLocator);
+
+        parent::__construct();
+    }
+
     /**
      * @inheritDoc
      */
@@ -29,7 +50,7 @@ final class EditCommand extends Command
     {
         $this->addOption('directory', 'd', InputOption::VALUE_REQUIRED, 'The project directory to open.');
         $this->addOption('no-tmux', null, InputOption::VALUE_NONE, 'Launch directly without creating or reusing a tmux session.');
-        $this->addOption('gui', null, InputOption::VALUE_NONE, 'Open the project in the graphical editor instead of the terminal editor.');
+        LaunchRequest::addOptions($this, $this->editorTargets, 'Editor to open', 'editors');
     }
 
     /**
@@ -57,11 +78,32 @@ final class EditCommand extends Command
             return Command::FAILURE;
         }
 
-        if ((bool) $input->getOption('gui')) {
+        try {
+            $editorId = $this->launchTargetSelector->selectTarget(
+                request: LaunchRequest::fromInput($input),
+                targets: $this->editorTargets,
+                projectDirectory: $workingDirectory,
+                canPrompt: $input->isInteractive() && $this->terminalInteractivity->supportsPrompts(),
+            );
+        } catch (RuntimeException|InvalidArgumentException $exception) {
+            $output->writeln(OutputFormatter::escape($exception->getMessage()));
+            return Command::INVALID;
+        }
+
+        if ($editorId === LaunchRequest::GRAPHICAL_ID) {
             return $this->launchGui($workingDirectory, $output);
         }
 
-        if (! (bool) $input->getOption('no-tmux') && $this->shouldLaunchInTmux()) {
+        return $this->openTerminalEditor($workingDirectory, (bool) $input->getOption('no-tmux'), $output);
+    }
+
+    /**
+     * Opens the project in the terminal editor, inside a tmux session unless
+     * `$noTmux` is set or the terminal cannot host one.
+     */
+    protected function openTerminalEditor(string $workingDirectory, bool $noTmux, OutputInterface $output): int
+    {
+        if (! $noTmux && $this->shouldLaunchInTmux()) {
             return $this->launchInTmux($workingDirectory);
         }
 
@@ -109,9 +151,10 @@ final class EditCommand extends Command
         $binPath = dirname(__DIR__, 2) . '/bin/ichiloto';
         $sessionName = 'ichiloto-editor-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', basename($workingDirectory));
         $editorCommand = sprintf(
-            '%s %s edit --no-tmux -d .',
+            '%s %s edit --no-tmux --renderer=%s -d .',
             escapeshellcmd(PHP_BINARY),
             escapeshellarg($binPath),
+            LaunchRequest::TERMINAL_ID,
         );
         $launchCommand = $this->buildCrashPreservingCommand($editorCommand, 'Ichiloto editor');
 
@@ -216,16 +259,20 @@ final class EditCommand extends Command
      */
     private function launchGui(string $workingDirectory, OutputInterface $output): int
     {
-        $locator = GuiEditorLocator::fromEnvironment(dirname(__DIR__, 2));
-        $executable = $locator->locate();
+        $executable = $this->guiEditorLocator->locate();
 
         if ($executable === null) {
-            $output->writeln($locator->describeMissing());
+            $output->writeln($this->guiEditorLocator->describeMissing());
 
             return Command::FAILURE;
         }
 
-        $project = realpath($workingDirectory) ?: $workingDirectory;
+        return $this->openGraphicalEditor($executable, realpath($workingDirectory) ?: $workingDirectory);
+    }
+
+    /** Runs the located GUI editor on the project, with `edit:host` as its session host. */
+    protected function openGraphicalEditor(string $executable, string $project): int
+    {
         $command = [
             $executable,
             '--project', $project,

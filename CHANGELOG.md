@@ -18,6 +18,24 @@
   on a cell, `--views FILE` gives each view its own region, subject and
   label, and `--changes BATCH` renders a batch before it is applied, writing
   nothing.
+### Changed
+
+- `ichiloto play`, `ichiloto battle` and `ichiloto edit` choose what to open
+  the same way (`LaunchTargetSelector`). Without a choice flag, an
+  interactive terminal lists the choices: the renderers for `play` and
+  `battle`, the Terminal editor and the GPUI editor for `edit`. A choice that
+  cannot open stays in the list marked unavailable, its whole reason printed
+  above it, from the project Engine's renderer report or the GPUI editor's
+  build (`GuiEditorLocator`). `--gui` opens the graphical choice directly in
+  all three, `--renderer=<id>` (with `auto`) now also works for `edit` with the
+  same IDs, `--gpui-renderer` stays as an alias of `--gui` and is accepted by
+  `edit` too, and `--gui` with `--renderer=terminal` is refused. A run
+  without a terminal, or with `--no-interaction`, still opens the terminal
+  choice, and `battle --runs` refuses `--gui` as it refuses `--renderer`.
+  An interactive `ichiloto edit` with no flag no longer opens the Terminal
+  editor straight away: it asks first. `RendererSelector` is replaced by
+  `Launch\LaunchTargetSelector`.
+
 ### Fixed
 
 - Commands that open a whole project in their own process (`map:apply`,

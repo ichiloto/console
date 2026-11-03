@@ -27,7 +27,7 @@ This package powers the `ichiloto` executable: it forges new projects, opens the
 The CLI currently ships these commands:
 
 - `ichiloto new` for guided project creation with a quest-like interactive flow
-- `ichiloto edit` for opening an Ichiloto project in the terminal editor
+- `ichiloto edit` for opening an Ichiloto project in the Terminal editor or the GPUI editor
 - `ichiloto play` for running a project's main entrypoint
 - `ichiloto upgrade` for converting a project to the format its Engine reads
 - `ichiloto validate` for checking a project's content and save metadata
@@ -67,7 +67,10 @@ ichiloto play
 
 ## Renderer Selection
 
-In an interactive terminal, `ichiloto play` asks which renderer to use:
+`ichiloto play`, `ichiloto battle` and `ichiloto edit` choose what to open the
+same way. In an interactive terminal, without a choice flag, each lists its
+choices: `play` and `battle` the renderers, `edit` the Terminal editor and the
+GPUI editor:
 
 ```text
 Select renderer
@@ -76,26 +79,46 @@ Select renderer
   GPUI
 ```
 
-The same choice can be made explicitly for scripts or repeatable launch
-commands:
+```text
+GPUI editor is unavailable: The GUI editor is not built. Build it with `cargo build --release` in ...
+
+Select editor
+
+❯ Terminal editor
+  GPUI editor (unavailable)
+```
+
+A choice that cannot open stays in the list, marked unavailable, with its
+whole reason printed above the list: the project's Engine reports which
+renderers are installed, and the GPUI editor is available once it is built.
+Choosing an unavailable one keeps the list open. When the project's Engine
+cannot report availability, the list says so and offers every renderer.
+
+`--gui` opens the graphical choice directly, without the list:
+
+```bash
+ichiloto play --gui
+ichiloto battle --gui
+ichiloto edit --gui
+```
+
+`--renderer` names the choice for scripts or repeatable launch commands, with
+the same IDs in all three commands (`edit --renderer=gpui` opens the GPUI
+editor). `--gpui-renderer` is kept as an alias of `--gui`:
 
 ```bash
 ichiloto play --renderer=terminal
-ichiloto play --renderer=gpui
-```
-
-`--gpui-renderer` is a convenience alias for `--renderer=gpui`:
-
-```bash
+ichiloto edit --renderer=gpui
 ichiloto play --gpui-renderer
 ```
 
-Non-interactive launches default to the native terminal renderer unless a
-renderer is selected explicitly:
+`--gui` with `--renderer=terminal` is refused. Non-interactive launches open
+the terminal choice unless one is named, so a script never waits on the list:
 
 ```bash
 ichiloto play --no-interaction
-ichiloto play --no-interaction --renderer=gpui
+ichiloto edit --no-interaction
+ichiloto play --no-interaction --gui
 ```
 
 Renderer implementation discovery is managed internally. The command-line
@@ -283,8 +306,8 @@ its simulator has every party member attack and would never use them.
 ichiloto battle --member "Kaelion:20,Commands=attack|skill|summon|item,Summons=djin" --member "Liora:20,Skills=Burn I|Heal I" --troop "Loch Ness"
 ```
 
-Choose the renderer as `ichiloto play` does, with `--renderer` or
-`--gpui-renderer`. Give it a run count instead and it simulates the fight
+Choose the renderer as `ichiloto play` does, from the list, with `--gui` or
+with `--renderer`. Give it a run count instead and it simulates the fight
 repeatedly, with the same party, and reports what the fight *is*:
 
 ```bash
