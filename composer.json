@@ -48,6 +48,7 @@
             "@php tests/project-memory.php",
             "@php tests/renderer-selection.php",
             "@php tests/renderer-availability.php",
+            "@php tests/launch-choice.php",
             "@php tests/play-startup.php",
             "@php tests/play-launch-context.php",
             "@php tests/terminal-session.php",

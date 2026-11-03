@@ -6,7 +6,11 @@ use Ichiloto\Console\Commands\RendererListCommand;
 use Ichiloto\Console\Renderer\ProjectRendererAvailability;
 use Ichiloto\Console\Renderer\RendererDescriptor;
 use Ichiloto\Console\Renderer\RendererRegistry;
-use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Launch\LaunchAvailability;
+use Ichiloto\Console\Launch\LaunchRequest;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
+use Ichiloto\Console\Launch\LaunchTargetSource;
+use Ichiloto\Console\Launch\RendererLaunchTargets;
 use Ichiloto\Console\Support\RendererPreparationProcess;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -60,6 +64,38 @@ function writeAvailabilityReportFixture(string $autoload, mixed $report): void
 {
     file_put_contents($autoload, '<?php namespace Ichiloto\\Engine\\Rendering\\Launch; final class RendererRegistry {'
         . ' public function getReport() { return ' . var_export($report, true) . '; } }');
+}
+
+/**
+ * Chooses a renderer as `play` would, with the project's availability read
+ * from `$report`, or unreadable when it is null.
+ *
+ * @param array<string, mixed>|null $report
+ */
+function selectReportedRenderer(LaunchTargetSelector $selector, ?string $id, bool $alias, bool $canPrompt,
+    ?array $report = null, RendererRegistry $registry = new RendererRegistry()): string
+{
+    $targets = new class ($registry, $report) implements LaunchTargetSource {
+        public string $promptLabel = 'Select renderer';
+
+        public function __construct(private RendererRegistry $registry, private ?array $report)
+        {
+        }
+
+        public function getTargetNames(): array
+        {
+            return $this->registry->options();
+        }
+
+        public function readAvailability(string $projectDirectory): LaunchAvailability
+        {
+            return $this->report === null
+                ? throw new RuntimeException('The project Engine does not support renderer availability discovery.')
+                : new RendererLaunchTargets($this->registry)->readReport(ProjectRendererAvailability::validateReport($this->report));
+        }
+    };
+
+    return $selector->selectTarget(new LaunchRequest($id, $alias ? ['--gpui-renderer'] : []), $targets, sys_get_temp_dir(), $canPrompt);
 }
 
 $root = sys_get_temp_dir() . '/console-renderer-availability-' . bin2hex(random_bytes(8));
@@ -122,23 +158,23 @@ try {
     assertAvailability(! getReadOnlyAvailabilityReport($availability, $project, $root)['renderers'][1]['available'], 'Escaped executable link was offered.');
 
     $neverPrompt = static fn(): never => throw new RuntimeException('Explicit auto or headless default prompted.');
-    $selector = new RendererSelector(new RendererRegistry(), $neverPrompt);
-    assertAvailability($selector->resolve(' auto ', false, true, $available)->id === 'gpui', 'Auto did not select available GPUI.');
-    assertAvailability($selector->resolve('auto', false, false, $absent)->id === 'terminal', 'Auto did not select Terminal when GPUI was absent.');
-    assertAvailability($selector->resolve(null, false, false, $available)->id === 'terminal', 'Ordinary headless default changed.');
-    assertAvailability($selector->resolve('gpui', false, false, $absent)->id === 'gpui', 'Explicit unavailable GPUI silently became Terminal.');
-    assertAvailability($selector->resolve(null, true, false, $absent)->id === 'gpui', 'The explicit GPUI alias silently became Terminal.');
-    assertAvailability($selector->resolve('auto', true, false, $available)->id === 'gpui', 'Agreeing auto and GPUI alias failed.');
-    expectAvailabilityFailure(static fn() => $selector->resolve('auto', false, false), 'requires a project renderer availability report');
-    expectAvailabilityFailure(static fn() => $selector->resolve('auto', true, false, $absent), 'conflicts');
-    expectAvailabilityFailure(static fn() => $selector->resolve('unknown', false, false, $available), 'Unknown renderer');
+    $selector = new LaunchTargetSelector($neverPrompt);
+    assertAvailability(selectReportedRenderer($selector, ' auto ', false, true, $available) === 'gpui', 'Auto did not select available GPUI.');
+    assertAvailability(selectReportedRenderer($selector, 'auto', false, false, $absent) === 'terminal', 'Auto did not select Terminal when GPUI was absent.');
+    assertAvailability(selectReportedRenderer($selector, null, false, false, $available) === 'terminal', 'Ordinary headless default changed.');
+    assertAvailability(selectReportedRenderer($selector, 'gpui', false, false, $absent) === 'gpui', 'Explicit unavailable GPUI silently became Terminal.');
+    assertAvailability(selectReportedRenderer($selector, null, true, false, $absent) === 'gpui', 'The explicit GPUI alias silently became Terminal.');
+    assertAvailability(selectReportedRenderer($selector, 'auto', true, false, $available) === 'gpui', 'Agreeing auto and GPUI alias failed.');
+    expectAvailabilityFailure(static fn() => selectReportedRenderer($selector, 'auto', false, false), 'does not support renderer availability');
+    expectAvailabilityFailure(static fn() => selectReportedRenderer($selector, 'auto', true, false, $absent), 'conflicts');
+    expectAvailabilityFailure(static fn() => selectReportedRenderer($selector, 'unknown', false, false, $available), 'Unknown renderer');
     $promptCalls = 0;
-    $prompted = new RendererSelector(new RendererRegistry(), static function (string $label, array $options) use (&$promptCalls): string {
+    $prompted = new LaunchTargetSelector(static function (string $label, array $options) use (&$promptCalls): string {
         $promptCalls++;
         assertAvailability($options === ['terminal' => 'Native Terminal', 'gpui' => 'GPUI'], 'Normal prompt options changed.');
         return 'terminal';
     });
-    assertAvailability($prompted->resolve(null, false, true, $available)->id === 'terminal' && $promptCalls === 1,
+    assertAvailability(selectReportedRenderer($prompted, null, false, true, $available) === 'terminal' && $promptCalls === 1,
         'Ordinary interactive selection changed.');
 
     $tester = new CommandTester(new RendererListCommand());
@@ -164,13 +200,13 @@ try {
     ], 'preferredId' => 'canvas'];
     writeAvailabilityReportFixture($autoload, $custom);
     assertAvailability(getReadOnlyAvailabilityReport($availability, $project, $root) === $custom, 'Console substituted its own Engine.');
-    $customSelector = new RendererSelector(new RendererRegistry([new RendererDescriptor('canvas', 'Project Canvas')]), $neverPrompt);
-    assertAvailability($customSelector->resolve('auto', false, false, $custom)->id === 'canvas', 'Custom registry preference was lost.');
-    expectAvailabilityFailure(static fn() => $selector->resolve('auto', false, false, $custom), 'Unknown renderer');
+    assertAvailability(selectReportedRenderer($selector, 'auto', false, false, $custom,
+        new RendererRegistry([new RendererDescriptor('canvas', 'Project Canvas')])) === 'canvas', 'Custom registry preference was lost.');
+    expectAvailabilityFailure(static fn() => selectReportedRenderer($selector, 'auto', false, false, $custom), 'Unknown renderer');
     $empty = ['schema' => 'ichiloto.renderers/1', 'renderers' => [], 'preferredId' => null];
     writeAvailabilityReportFixture($autoload, $empty);
     assertAvailability(getReadOnlyAvailabilityReport($availability, $project, $root) === $empty, 'Empty valid registry was rejected.');
-    expectAvailabilityFailure(static fn() => $selector->resolve('auto', false, false, $empty), 'No renderer is available');
+    expectAvailabilityFailure(static fn() => selectReportedRenderer($selector, 'auto', false, false, $empty), 'No renderer is available');
 
     $invalidReports = [null, ['schema' => 'future'], $custom + ['extra' => true], array_replace($custom, ['schema' => 'ichiloto.renderers/2']),
         array_replace($custom, ['preferredId' => 'gpui']), array_replace($custom, ['preferredId' => null]),

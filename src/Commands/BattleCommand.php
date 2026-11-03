@@ -4,8 +4,10 @@ namespace Ichiloto\Console\Commands;
 
 use Ichiloto\Console\Battle\BattleMemberOption;
 use Ichiloto\Console\Battle\ParticipantSnapshot;
-use Ichiloto\Console\Renderer\RendererRegistry;
-use Ichiloto\Console\Renderer\RendererSelector;
+use Ichiloto\Console\Launch\LaunchRequest;
+use Ichiloto\Console\Launch\LaunchTargetSelector;
+use Ichiloto\Console\Launch\LaunchTargetSource;
+use Ichiloto\Console\Launch\RendererLaunchTargets;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
 use Ichiloto\Console\Support\RendererUpdateOffer;
 use Ichiloto\Console\Support\SourceRendererUpdateChecker;
@@ -53,9 +55,9 @@ use Throwable;
 )]
 class BattleCommand extends Command
 {
-  private readonly RendererRegistry $rendererRegistry;
+  private readonly LaunchTargetSource $rendererTargets;
 
-  private readonly RendererSelector $rendererSelector;
+  private readonly LaunchTargetSelector $launchTargetSelector;
 
   private readonly TerminalInteractivity $terminalInteractivity;
 
@@ -65,15 +67,15 @@ class BattleCommand extends Command
    * @param (callable(string, array<string, string>): (int|string))|null $rendererUpdatePrompt
    */
   public function __construct(
-    ?RendererRegistry $rendererRegistry = null,
-    ?RendererSelector $rendererSelector = null,
+    ?LaunchTargetSource $rendererTargets = null,
+    ?LaunchTargetSelector $launchTargetSelector = null,
     ?TerminalInteractivity $terminalInteractivity = null,
     ?SourceRendererUpdateChecker $rendererUpdateChecker = null,
     ?SourceRendererUpdater $rendererUpdater = null,
     ?callable $rendererUpdatePrompt = null,
   ) {
-    $this->rendererRegistry = $rendererRegistry ?? new RendererRegistry();
-    $this->rendererSelector = $rendererSelector ?? new RendererSelector($this->rendererRegistry);
+    $this->rendererTargets = $rendererTargets ?? new RendererLaunchTargets();
+    $this->launchTargetSelector = $launchTargetSelector ?? new LaunchTargetSelector();
     $this->terminalInteractivity = $terminalInteractivity ?? new TerminalInteractivity();
     $this->rendererUpdateOffer = new RendererUpdateOffer($rendererUpdateChecker, $rendererUpdater,
       $this->terminalInteractivity, $rendererUpdatePrompt);
@@ -92,10 +94,9 @@ class BattleCommand extends Command
         sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]; repeat for each, up to %d. Without it, the starting party.',
           class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
       ->addOption('arena', 'a', InputOption::VALUE_REQUIRED,
-        'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.')
-      ->addOption('renderer', null, InputOption::VALUE_REQUIRED,
-        sprintf('Renderer to play the battle in (%s)', implode(', ', $this->rendererRegistry->ids())))
-      ->addOption('gpui-renderer', null, InputOption::VALUE_NONE, 'Play the battle in the GPUI renderer.');
+        'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.');
+    LaunchRequest::addOptions($this, $this->rendererTargets, 'Renderer to play the battle in', 'renderers');
+    $this->setHelp($this->getHelp() . "\n\nA simulation with --runs draws nothing, so it refuses --renderer and --gui.");
   }
 
   public function execute(InputInterface $input, OutputInterface $output): int
@@ -122,8 +123,16 @@ class BattleCommand extends Command
 
     $playing = $input->getOption('runs') === null;
 
+    try {
+      $launchRequest = LaunchRequest::fromInput($input);
+    } catch (InvalidArgumentException $exception) {
+      $output->writeln($exception->getMessage());
+
+      return Command::INVALID;
+    }
+
     // A simulation draws nothing, so a renderer is a mistake to point out.
-    if (! $playing && ($input->getOption('renderer') !== null || (bool) $input->getOption('gpui-renderer'))) {
+    if (! $playing && $launchRequest->hasChoice) {
       $output->writeln('A renderer applies to playing a battle, not to simulating one with --runs.');
 
       return Command::INVALID;
@@ -179,32 +188,27 @@ class BattleCommand extends Command
     // Playing the fight is the point; simulating it is what you do once you
     // have played it and want to know what it does a hundred times over.
     if ($playing) {
-      $rendererOption = $input->getOption('renderer');
-      if ($rendererOption !== null && ! is_string($rendererOption)) {
-        $output->writeln('The renderer option must be a renderer ID.');
-
-        return Command::INVALID;
-      }
       try {
-        $renderer = $this->rendererSelector->resolve(
-          rendererOption: $rendererOption,
-          gpuiAlias: (bool) $input->getOption('gpui-renderer'),
+        $rendererId = $this->launchTargetSelector->selectTarget(
+          request: $launchRequest,
+          targets: $this->rendererTargets,
+          projectDirectory: $workingDirectory,
           canPrompt: $input->isInteractive() && $this->terminalInteractivity->supportsPrompts(),
         );
-      } catch (InvalidArgumentException $exception) {
+      } catch (\RuntimeException|InvalidArgumentException $exception) {
         $output->writeln($exception->getMessage());
 
         return Command::INVALID;
       }
       // Only a graphical renderer draws an arena; the terminal draws the battle its own way.
-      if ($arena !== null && $renderer->id === 'terminal') {
+      if ($arena !== null && $rendererId === LaunchRequest::TERMINAL_ID) {
         $output->writeln('An arena is drawn by a graphical renderer; the terminal renderer draws none. Choose one with --renderer.');
 
         return Command::INVALID;
       }
-      $this->rendererUpdateOffer->offer($workingDirectory, $renderer->id, $input, $output);
+      $this->rendererUpdateOffer->offer($workingDirectory, $rendererId, $input, $output);
 
-      return $this->play($workingDirectory, $input->getOption('troop'), $renderer->id, $setup, $output);
+      return $this->play($workingDirectory, $input->getOption('troop'), $rendererId, $setup, $output);
     }
 
     if ($troops === [] || ! $party instanceof Party) {
