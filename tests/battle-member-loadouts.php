@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 /**
- * Checks how a --member's loadout is read: Commands replaces the member's
- * command menu, Skills and Summons add test grants, each a |-separated list,
- * and the three keys never become equipment slots.
+ * Checks how a --member's loadout and start are read: Commands replaces the
+ * member's command menu, Skills and Summons add test grants, each a
+ * |-separated list, HP and MP keep the amount as typed for the engine to read,
+ * States is a list, and none of these keys become equipment slots.
  */
 
 use Ichiloto\Console\Battle\BattleMemberOption;
@@ -55,4 +56,15 @@ assertLoadout(str_contains(loadoutFailure('Liora,Summons=ifrit,Summons=torro'), 
 assertLoadout(str_contains(loadoutFailure('Liora,Commands'), 'loadouts as Commands=, Skills= or Summons='),
     'a key without = says how loadouts are written');
 
-fwrite(STDOUT, "PASS: --member reads commands, skills and summons as test loadouts.\n");
+$start = BattleMemberOption::parse('Kaelion:3, hp=9%, MP=12, States=presence | Poison, Weapon=Iron Sword');
+assertLoadout($start->hp === '9%' && $start->mp === '12' && $start->states === ['presence', 'Poison']
+    && $start->equipment === ['Weapon' => 'Iron Sword'] && $plain->hp === null && $plain->states === [],
+    'HP, MP and States are read as the member\'s start, in any case, and are not equipment slots');
+assertLoadout(BattleMemberOption::parse('Kaelion,Form=Blood Frenzy')->form === 'Blood Frenzy' && $plain->form === null,
+    'Form is read as the member\'s form, by technique or story value, for the engine to resolve');
+assertLoadout(str_contains(loadoutFailure('Liora,HP=9%,HP=10%'), 'HP is given more than once'),
+    'a starting amount given twice is refused');
+assertLoadout(str_contains(loadoutFailure('Liora,States=presence||poison'), 'States needs one or more names separated by |, such as States=presence|poison'),
+    'an empty state name is refused');
+
+fwrite(STDOUT, "PASS: --member reads commands, skills and summons as test loadouts, and HP, MP and States as its start.\n");
