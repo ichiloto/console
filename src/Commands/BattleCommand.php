@@ -800,7 +800,15 @@ class BattleCommand extends Command
         $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, $commands, $skills, $summons);
       }
     }
-    $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers, $project?->setup?->arena ?? $project?->arena);
+    $setup = null;
+    if ($setupMembers !== []) {
+      $preset = $project?->toArray() ?? [];
+      unset($preset['troop']);
+      $setup = BattleTestSetup::fromArray([
+        ...$preset,
+        'members' => array_map(static fn(BattleTestMember $member): array => $member->toArray(), $setupMembers),
+      ]);
+    }
     $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
     if ($problems !== [] || $setup === null) {
       throw new InvalidArgumentException("The battle test party cannot be set up:\n" . implode("\n", $problems));

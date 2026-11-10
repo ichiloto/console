@@ -195,6 +195,32 @@ PHP);
                 && $command->setup?->arena === 'arena.lake',
                 "--arena replaces only the project's battle test arena, not its party");
 
+            if (property_exists(BattleTestSetup::class, 'scenario')) {
+                file_put_contents($project . '/assets/Data/battle-test-scenarios.php',
+                    "<?php return ['night' => ['name' => 'Night', 'variables' => ['form' => 'night']]];");
+                $preset = require $system;
+                $preset['battleTest']['scenario'] = 'night';
+                $preset['battleTest']['inventory'] = [['item' => 'item.potion', 'quantity' => 2]];
+                $preset['battleTest']['battleSize'] = 2;
+                file_put_contents($system, '<?php return ' . var_export($preset, true) . ';');
+
+                [$command, $status, $display] = runBattleMembers($project, ['hero'], ['--renderer' => 'gpui']);
+                assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'hero'
+                    && $command->setup?->arena === 'arena.road'
+                    && $command->setup?->scenario === 'night'
+                    && $command->setup?->inventory[0]?->quantity === 2
+                    && $command->setup?->battleSize === 2,
+                    '--member preserves scenario, stock, capacity and arena when replacing members: ' . $display);
+
+                unset($preset['battleTest']['members'], $preset['battleTest']['battleSize']);
+                $preset['battleTest']['inventory'] = [];
+                file_put_contents($system, '<?php return ' . var_export($preset, true) . ';');
+                [$command, $status, $display] = runBattleMembers($project, ['hero'], ['--renderer' => 'gpui']);
+                assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'hero'
+                    && $command->setup?->scenario === 'night' && $command->setup?->inventory === [],
+                    '--member preserves the scenario and explicit empty stock on a starting-party preset: ' . $display);
+            }
+
             file_put_contents($system, $original);
         }
     }
