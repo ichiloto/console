@@ -1,24 +1,18 @@
 <?php
 
 declare(strict_types=1);
-require_once __DIR__ . '/fixtures/temporary.php';
+require_once dirname(__DIR__) . '/vendor/autoload.php';
+require_once __DIR__ . '/fixtures/IntegrationProject.php';
+
+use Ichiloto\Console\Tests\Fixtures\IntegrationProject;
 
 /**
  * Integration check for the production validation command.
  */
 
 $consoleRoot = dirname(__DIR__);
-$pinnedGame = getenv('ICHILOTO_GAME_SRC');
-$projectRoot = is_string($pinnedGame) && $pinnedGame !== '' && is_dir($pinnedGame . '/assets')
-    ? realpath($pinnedGame)
-    : false;
 $consoleBin = $consoleRoot . '/bin/ichiloto';
-$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-validation-' . bin2hex(random_bytes(8));
-
-if (! is_string($projectRoot)) {
-    fwrite(STDOUT, "SKIP: set ICHILOTO_GAME_SRC to run project validation integration checks.\n");
-    exit(0);
-}
+$projectRoot = IntegrationProject::createProject('validation-');
 
 /**
  * Returns the path to one directory relative to another, so the "relative
@@ -44,7 +38,7 @@ function validationReport(string $consoleBin, string $workingDirectory, string $
 {
     $pipes = [];
     $process = proc_open(
-        [PHP_BINARY, $consoleBin, 'validate', '--no-ansi', '--directory', $target],
+        [PHP_BINARY, '-d', 'memory_limit=' . ini_get('memory_limit'), $consoleBin, 'validate', '--no-ansi', '--directory', $target],
         [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
@@ -83,70 +77,7 @@ function assertSameReport(array $expected, array $actual, string $context): void
     }
 }
 
-function copyDirectory(string $source, string $destination): void
-{
-    if (! is_dir($destination) && ! mkdir($destination, 0777, true) && ! is_dir($destination)) {
-        fail("Unable to create temporary directory: {$destination}");
-    }
-
-    foreach (scandir($source) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
-            continue;
-        }
-
-        $sourcePath = $source . '/' . $entry;
-        $destinationPath = $destination . '/' . $entry;
-
-        if ($entry === 'Audio' && basename($source) === 'assets' && is_dir($sourcePath)) {
-            // Nothing here plays or writes the audio, and it weighs more than
-            // the rest of the project together: reached through a link, so
-            // the copy is the size of the authored data.
-            symlink($sourcePath, $destinationPath);
-            continue;
-        }
-
-        if (is_dir($sourcePath) && ! is_link($sourcePath)) {
-            copyDirectory($sourcePath, $destinationPath);
-            continue;
-        }
-
-        if (! copy($sourcePath, $destinationPath)) {
-            fail("Unable to copy fixture file: {$sourcePath}");
-        }
-    }
-}
-
-function removeDirectory(string $directory): void
-{
-    if (! is_dir($directory)) {
-        return;
-    }
-
-    foreach (scandir($directory) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
-            continue;
-        }
-
-        $path = $directory . '/' . $entry;
-
-        if (is_link($path)) {
-            // A link is removed as a link: what it points at -- the game's
-            // audio -- is not the fixture's to remove.
-            unlink($path);
-        } elseif (is_dir($path)) {
-            removeDirectory($path);
-        } else {
-            unlink($path);
-        }
-    }
-
-    rmdir($directory);
-}
-
-/**
- * A failed expectation. Thrown rather than exited on, so the fixture is
- * removed by the finally below whether the run passes or fails.
- */
+/** Fails verification; the shared process fixture owner performs cleanup. */
 final class TestFailure extends Exception
 {
 }
@@ -160,9 +91,9 @@ try {
     $baseline = validationReport($consoleBin, $projectRoot, '.');
 
     if ($baseline['exitCode'] !== 0
-        || (! str_contains($baseline['output'], 'Last Legend looks good.')
+        || (! str_contains($baseline['output'], 'Console Fixture looks good.')
             && ! str_contains($baseline['output'], '0 errors,'))) {
-        fail('The Last Legend project-root validation baseline did not pass: ' . $baseline['output']);
+        fail('The synthetic project-root validation baseline did not pass: ' . $baseline['output']);
     }
 } catch (TestFailure $failure) {
     fwrite(STDERR, "FAIL: {$failure->getMessage()}\n");
@@ -185,34 +116,41 @@ try {
 }
 
 try {
-    mkdir($temporaryRoot, 0777, true);
-    copy($projectRoot . '/ichiloto.json', $temporaryRoot . '/ichiloto.json');
-    copy($projectRoot . '/composer.json', $temporaryRoot . '/composer.json');
-    copyDirectory($projectRoot . '/assets', $temporaryRoot . '/assets');
-
-    $questPath = $temporaryRoot . '/assets/Data/quests.php';
-    $quests = (string) file_get_contents($questPath);
     $missingEnemy = 'Definitely Missing Enemy';
-    $brokenQuests = str_replace("'target' => 'Sewer Rat'", "'target' => '{$missingEnemy}'", $quests, $count);
-
-    if ($count !== 1) {
-        fail('The negative fixture could not replace its expected enemy reference.');
-    }
-
-    file_put_contents($questPath, $brokenQuests);
-    $negative = validationReport($consoleBin, $consoleRoot, $temporaryRoot);
+    IntegrationProject::setQuestTarget($projectRoot, $missingEnemy);
+    $negative = validationReport($consoleBin, $consoleRoot, $projectRoot);
 
     if ($negative['exitCode'] === 0 || ! str_contains($negative['output'], $missingEnemy)) {
         fail('A genuine missing enemy reference was not reported: ' . $negative['output']);
     }
 } catch (TestFailure $failure) {
     $testFailure = $failure->getMessage();
-} finally {
-    removeDirectory($temporaryRoot);
 }
 
 if (isset($testFailure)) {
     fwrite(STDERR, "FAIL: {$testFailure}\n");
+    exit(1);
+}
+
+// An optional real-project check reads current content without copying it.
+try {
+    $pinnedGame = getenv('ICHILOTO_GAME_SRC');
+    if (is_string($pinnedGame) && $pinnedGame !== '') {
+        $live = realpath($pinnedGame);
+        if ($live === false || !is_dir($live . '/assets')) {
+            fail('ICHILOTO_GAME_SRC does not name a project.');
+        }
+        $liveBaseline = validationReport($consoleBin, $live, '.');
+        if ($liveBaseline['exitCode'] !== 0) {
+            fail('The pinned project failed validation: ' . $liveBaseline['output']);
+        }
+        foreach ([$live, relativePath($consoleRoot, $live)] as $target) {
+            assertSameReport($liveBaseline, validationReport($consoleBin, $consoleRoot, $target), 'Pinned project cwd');
+        }
+        assertSameReport($liveBaseline, validationReport($consoleBin, \getConsoleTestTemporaryDirectory(), $live), 'Pinned project unrelated cwd');
+    }
+} catch (TestFailure $failure) {
+    fwrite(STDERR, "FAIL: {$failure->getMessage()}\n");
     exit(1);
 }
 

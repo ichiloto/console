@@ -1,7 +1,9 @@
 <?php
 
 declare(strict_types=1);
-require_once __DIR__ . '/fixtures/temporary.php';
+require_once __DIR__ . '/fixtures/IntegrationProject.php';
+
+use Ichiloto\Console\Tests\Fixtures\IntegrationProject;
 
 /**
  * Checks what the battle report says, and what it refuses to say.
@@ -11,8 +13,7 @@ require_once __DIR__ . '/fixtures/temporary.php';
  * that it exits with the right code, and that it never quietly implies a
  * number the engine did not give it.
  *
- * The simulated run works on a disposable copy of the project so nothing
- * here can touch the real one.
+ * The simulated run uses a small generated project and never copies a game.
  */
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
@@ -34,17 +35,8 @@ final class BattleCommandWidthProbe
 }
 
 $consoleRoot = dirname(__DIR__);
-$pinnedGame = getenv('ICHILOTO_GAME_SRC');
-$projectRoot = is_string($pinnedGame) && $pinnedGame !== '' && is_dir($pinnedGame . '/assets')
-    ? realpath($pinnedGame)
-    : false;
 $consoleBin = $consoleRoot . '/bin/ichiloto';
-$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-battle-' . bin2hex(random_bytes(8));
-
-if (! is_string($projectRoot)) {
-    fwrite(STDOUT, "SKIP: set ICHILOTO_GAME_SRC to run battle-report integration checks.\n");
-    exit(0);
-}
+$temporaryRoot = IntegrationProject::createProject('battle-report-');
 
 /**
  * Runs the battle command and returns what it printed.
@@ -56,7 +48,7 @@ function battleReport(string $consoleBin, string $workingDirectory, array $argum
 {
     $pipes = [];
     $process = proc_open(
-        [PHP_BINARY, $consoleBin, 'battle', '--no-ansi', ...$arguments],
+        [PHP_BINARY, '-d', 'memory_limit=' . ini_get('memory_limit'), $consoleBin, 'battle', '--no-ansi', ...$arguments],
         [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
@@ -80,74 +72,7 @@ function battleReport(string $consoleBin, string $workingDirectory, array $argum
     return ['exitCode' => proc_close($process), 'output' => (string) $stdout . (string) $stderr];
 }
 
-/**
- * Copies a project into a disposable directory, bounded.
- *
- * Symlinks stay symlinks, and the audio -- which nothing here plays or writes,
- * and which weighs more than the rest of the project together -- is reached
- * through a link rather than copied, so the copy is the size of the authored
- * data and not of the soundtrack.
- */
-function copyProject(string $source, string $destination): void
-{
-    mkdir($destination, 0777, true);
-
-    foreach (scandir($source) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
-            continue;
-        }
-
-        $from = $source . '/' . $entry;
-        $to = $destination . '/' . $entry;
-
-        if (is_link($from)) {
-            // The engine is reached through a link; following it would copy a
-            // whole engine into a temporary directory for no reason. The
-            // target is resolved first, because a link written relative to
-            // the project points nowhere once the project is somewhere else.
-            $target = realpath($from);
-            symlink($target === false ? (string) readlink($from) : $target, $to);
-            continue;
-        }
-
-        if ($entry === 'Audio' && is_dir($from) && basename($source) === 'assets') {
-            symlink($from, $to);
-            continue;
-        }
-
-        is_dir($from) ? copyProject($from, $to) : copy($from, $to);
-    }
-}
-
-function removeProject(string $directory): void
-{
-    if (! is_dir($directory)) {
-        return;
-    }
-
-    foreach (scandir($directory) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
-            continue;
-        }
-
-        $path = $directory . '/' . $entry;
-
-        if (is_link($path) || is_file($path)) {
-            unlink($path);
-            continue;
-        }
-
-        removeProject($path);
-    }
-
-    rmdir($directory);
-}
-
-/**
- * A failed expectation. Thrown rather than exited on, so the fixture is
- * removed by the finally below whether the run passes or fails -- exit()
- * would skip it and leave the copy behind.
- */
+/** Fails verification; the shared process fixture owner performs cleanup. */
 final class TestFailure extends Exception
 {
 }
@@ -358,23 +283,15 @@ function widestLine(string $output): int
 }
 
 try {
-    copyProject($projectRoot, $temporaryRoot);
-
-    // The width contract is the engine's, so the engine has to be loaded
-    // before it can be asked anything.
-    if (is_file($temporaryRoot . '/vendor/autoload.php')) {
-        require_once $temporaryRoot . '/vendor/autoload.php';
-    }
-
     // -- Deterministic output --------------------------------------------
 
-    $first = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', 'Bat x 2', '-r', '5']);
+    $first = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', IntegrationProject::TROOP_NAME, '-r', '5']);
 
     if ($first['exitCode'] !== 0) {
         fail('A simulated battle did not succeed: ' . $first['output']);
     }
 
-    $second = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', 'Bat x 2', '-r', '5']);
+    $second = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', IntegrationProject::TROOP_NAME, '-r', '5']);
 
     if ($first['output'] !== $second['output']) {
         fail('Two identical runs printed different reports.');
@@ -471,7 +388,7 @@ try {
         $narrow = battleReport(
             $consoleBin,
             $consoleRoot,
-            ['-d', $temporaryRoot, '-t', 'Bat x 2', '-r', '2'],
+            ['-d', $temporaryRoot, '-t', IntegrationProject::TROOP_NAME, '-r', '2'],
             $columns,
         );
 
@@ -491,13 +408,9 @@ try {
     // CJK, a joined emoji, a pictograph with a variation selector, and a
     // combining mark, in the name that heads the troop verdict.
     $wideName = "日本語の敵👨‍👩‍👧‍👦テスト🗡️e\u{0301}";
-    $renamed = preg_replace("/'name' => 'Bat x 2'/", sprintf("'name' => '%s'", $wideName), $troops, 1);
-
-    if ($renamed === null || $renamed === $troops) {
-        fail('The wide-name fixture could not rename a troop.');
-    }
-
-    file_put_contents($troopsPath, $renamed);
+    $wideTroops = require $troopsPath;
+    $wideTroops[0]['name'] = $wideName;
+    file_put_contents($troopsPath, "<?php return " . var_export($wideTroops, true) . ";\n");
 
     foreach ([40, 60, 100, 200] as $columns) {
         $wide = battleReport(
@@ -580,7 +493,7 @@ try {
         $troopData = null;
 
         foreach ((array) (static fn(): mixed => require $temporaryRoot . '/assets/Data/troops.php')() as $candidate) {
-            if (is_array($candidate) && ($candidate['name'] ?? '') === 'Bat x 2') {
+            if (is_array($candidate) && ($candidate['name'] ?? '') === IntegrationProject::TROOP_NAME) {
                 $troopData = $candidate;
             }
         }
@@ -590,7 +503,7 @@ try {
         $target = $troop->members->toArray()[0];
 
         // Force what the resolver writes beyond health: a fire blade whose
-        // critical modifier sits at the ceiling, swung at a bat weak to
+        // critical modifier sits at the ceiling, swung at a synthetic foe weak to
         // fire, so every hit is an elemental reaction and the seeded run
         // criticals. Removing the outer boundary leaves both flags changed.
         $blade = new \Ichiloto\Engine\Entities\Inventory\Weapons\Weapon(
@@ -744,9 +657,9 @@ try {
 
     // -- Nothing was written to the project ------------------------------
 
-    $before = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', 'Bat x 2', '-r', '2']);
+    $before = battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', IntegrationProject::TROOP_NAME, '-r', '2']);
     $hashesBefore = projectHashes($temporaryRoot);
-    battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', 'Bat x 2', '-r', '2']);
+    battleReport($consoleBin, $consoleRoot, ['-d', $temporaryRoot, '-t', IntegrationProject::TROOP_NAME, '-r', '2']);
 
     if (projectHashes($temporaryRoot) !== $hashesBefore) {
         fail('Simulating a battle changed the project.');
@@ -854,8 +767,6 @@ try {
     }
 } catch (TestFailure $failure) {
     $testFailure = $failure->getMessage();
-} finally {
-    removeProject($temporaryRoot);
 }
 
 if (isset($testFailure)) {
@@ -871,11 +782,9 @@ if (isset($testFailure)) {
 function projectHashes(string $root): array
 {
     $hashes = [];
-    // Links are followed, so the audio reached through one is hashed file
-    // by file like everything else, and the pin over the whole project keeps
-    // its full reach.
+    // The generated project has no borrowed assets or dependency links.
     $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS | FilesystemIterator::FOLLOW_SYMLINKS),
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::SELF_FIRST,
     );
 
