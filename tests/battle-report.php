@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 /**
  * Checks what the battle report says, and what it refuses to say.
@@ -38,7 +39,7 @@ $projectRoot = is_string($pinnedGame) && $pinnedGame !== '' && is_dir($pinnedGam
     ? realpath($pinnedGame)
     : false;
 $consoleBin = $consoleRoot . '/bin/ichiloto';
-$temporaryRoot = sys_get_temp_dir() . '/ichiloto-battle-' . bin2hex(random_bytes(8));
+$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-battle-' . bin2hex(random_bytes(8));
 
 if (! is_string($projectRoot)) {
     fwrite(STDOUT, "SKIP: set ICHILOTO_GAME_SRC to run battle-report integration checks.\n");

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Renderer\RendererDescriptor;
@@ -333,7 +334,7 @@ $selector = new LaunchTargetSelector($noPrompt);
 $targets = new RendererLaunchTargets($registry);
 $alias = ['--gpui-renderer'];
 $select = static fn (LaunchTargetSelector $selector, ?string $id, array $flags, bool $canPrompt): string
-    => $selector->selectTarget(new LaunchRequest($id, $flags), $targets, sys_get_temp_dir(), $canPrompt);
+    => $selector->selectTarget(new LaunchRequest($id, $flags), $targets, \getConsoleTestTemporaryDirectory(), $canPrompt);
 
 assertRendererSelection($select($selector, 'terminal', [], true) === 'terminal', '--renderer=terminal did not resolve terminal.');
 assertRendererSelection($select($selector, 'gpui', [], true) === 'gpui', '--renderer=gpui did not resolve GPUI.');
@@ -399,7 +400,7 @@ assertRendererSelection(str_contains($gpuiGameCommand, "ICHILOTO_RENDERER='gpui'
 assertRendererSelection(str_contains($gpuiTmuxCommand, 'ICHILOTO_RENDERER='), 'The tmux command omits the renderer launch intent.');
 assertRendererSelection(str_contains($gpuiTmuxCommand, 'gpui'), 'The tmux command omits the GPUI renderer ID.');
 
-$testRoot = sys_get_temp_dir() . '/ichiloto-renderer-selection-' . bin2hex(random_bytes(8));
+$testRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-renderer-selection-' . bin2hex(random_bytes(8));
 $projectDirectory = $testRoot . '/relative-project';
 $appDirectory = $projectDirectory . '/app';
 $vendorDirectory = $projectDirectory . '/vendor';

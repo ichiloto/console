@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\MapConvertKindsCommand;
 use Ichiloto\Console\Support\NewProjectScaffolder;
@@ -17,7 +18,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$projectRoot = sys_get_temp_dir() . '/ichiloto-convert-kinds-' . bin2hex(random_bytes(8));
+$projectRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-convert-kinds-' . bin2hex(random_bytes(8));
 
 final class ConvertKindsFailure extends RuntimeException
 {

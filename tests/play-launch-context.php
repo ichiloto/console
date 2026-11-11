@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
@@ -44,7 +45,7 @@ function removeLaunchContextFixture(string $root): void
 function runLaunchContextTmuxCli(string $project, string $json): array
 {
     $pipes = [];
-    $process = proc_open([PHP_BINARY, '-d', 'memory_limit=512M', '-d', 'sys_temp_dir=' . sys_get_temp_dir(),
+    $process = proc_open([PHP_BINARY, '-d', 'memory_limit=512M', '-d', 'sys_temp_dir=' . \getConsoleTestTemporaryDirectory(),
         dirname(__DIR__) . '/bin/ichiloto', 'play', '--directory=' . $project, '--renderer=terminal',
         '--no-interaction', '--launch-context=' . $json],
         [0 => ['pty'], 1 => ['pty'], 2 => ['pipe', 'w']], $pipes, $project);
@@ -74,7 +75,7 @@ function runLaunchContextTmuxCli(string $project, string $json): array
     return ['code' => $code < 0 ? $status['exitcode'] : $code, 'output' => $output];
 }
 
-$root = sys_get_temp_dir() . '/console-launch-context-' . bin2hex(random_bytes(12));
+$root = \getConsoleTestTemporaryDirectory() . '/console-launch-context-' . bin2hex(random_bytes(12));
 mkdir($root, 0700);
 $root = realpath($root);
 $project = $root . "/project with 'quotes' and spaces";

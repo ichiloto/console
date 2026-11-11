@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Support\ConsoleInstallation;
 
@@ -49,7 +50,7 @@ if (! str_starts_with($self, 'pull the latest Ichiloto Console into ' . realpath
 }
 
 // Installed as a package: the executable finds the autoloader of the project that installed it.
-$home = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ichiloto-console-install-' . bin2hex(random_bytes(8));
+$home = \getConsoleTestTemporaryDirectory() . DIRECTORY_SEPARATOR . 'ichiloto-console-install-' . bin2hex(random_bytes(8));
 $packageBin = $home . '/vendor/ichiloto/console/bin';
 mkdir($packageBin, 0777, true);
 copy(dirname(__DIR__) . '/bin/ichiloto', $packageBin . '/ichiloto');

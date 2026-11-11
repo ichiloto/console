@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\RendererListCommand;
 use Ichiloto\Console\Renderer\ProjectRendererAvailability;
@@ -95,10 +96,10 @@ function selectReportedRenderer(LaunchTargetSelector $selector, ?string $id, boo
         }
     };
 
-    return $selector->selectTarget(new LaunchRequest($id, $alias ? ['--gpui-renderer'] : []), $targets, sys_get_temp_dir(), $canPrompt);
+    return $selector->selectTarget(new LaunchRequest($id, $alias ? ['--gpui-renderer'] : []), $targets, \getConsoleTestTemporaryDirectory(), $canPrompt);
 }
 
-$root = sys_get_temp_dir() . '/console-renderer-availability-' . bin2hex(random_bytes(8));
+$root = \getConsoleTestTemporaryDirectory() . '/console-renderer-availability-' . bin2hex(random_bytes(8));
 $project = $root . '/project ; with spaces';
 $engine = $root . '/project engine';
 $installed = $engine . '/resources/renderers/installed';

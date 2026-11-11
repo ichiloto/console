@@ -440,6 +440,14 @@ composer install
 
 Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
 
+Run `composer test` for the headless CLI checks. Tests creating temporary files
+load `tests/fixtures/temporary.php` and use
+`getConsoleTestTemporaryDirectory()` as their base. One shared owner holds the
+run lock, cleans normal and fatal exits, and recovers abandoned generated runs.
+Cleanup failures fail the process; symlink targets, project saves and deliberate
+review exports remain outside the fixture's ownership. The lifecycle probe in
+`tests/temporary-fixtures.php` exercises real child processes and locks.
+
 The `validate --migrate-actor-ids` work on `develop` uses
 `Ichiloto\Editor\Actors\ActorIdentityMigration`, which is not in Editor
 0.5.1. Before a future Console release includes that command, release a matching

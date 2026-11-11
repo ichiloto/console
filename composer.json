@@ -43,6 +43,7 @@
     "scripts": {
         "analyse": "phpstan analyse --memory-limit=1G",
         "test": [
+            "@php tests/temporary-fixtures.php",
             "@php tests/portable-composer-dependencies.php",
             "@php tests/local-sibling-autoload.php",
             "@php tests/project-memory.php",

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Support\RendererPackageInstaller;
 
@@ -99,7 +100,7 @@ function readManifest(string $boundary): array
     return $manifest;
 }
 
-$workspace = sys_get_temp_dir() . '/ichiloto-renderer-install-test-' . getmypid();
+$workspace = \getConsoleTestTemporaryDirectory() . '/ichiloto-renderer-install-test-' . getmypid();
 removeTestTree($workspace);
 
 try {

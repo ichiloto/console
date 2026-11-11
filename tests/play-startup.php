@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Support\GameLaunchCommandBuilder;
@@ -37,7 +38,7 @@ function removePlayStartupFixture(string $root): void
     rmdir($root);
 }
 
-$root = sys_get_temp_dir() . '/console-play-startup-' . bin2hex(random_bytes(12));
+$root = \getConsoleTestTemporaryDirectory() . '/console-play-startup-' . bin2hex(random_bytes(12));
 $project = $root . "/project with 'quotes' and spaces";
 mkdir($project . '/vendor', 0700, true);
 mkdir($project . '/.data', 0700);

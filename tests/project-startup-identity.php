@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Support\NewProjectScaffolder;
 use Ichiloto\Engine\Audio\AudioMutePreflight;
@@ -305,7 +306,7 @@ if (($argv[1] ?? null) === '--child') {
     exit(0);
 }
 
-$temporaryRoot = sys_get_temp_dir() . '/ichiloto-startup-identity-' . bin2hex(random_bytes(8));
+$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-startup-identity-' . bin2hex(random_bytes(8));
 $freshRoot = $temporaryRoot . '/fresh';
 $epicRoot = $temporaryRoot . '/epic-quest';
 $releasedRoot = $temporaryRoot . '/released-0.5.0';

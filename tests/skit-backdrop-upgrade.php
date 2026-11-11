@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Upgrade\ProjectUpgradeChain;
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
@@ -19,7 +20,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
  * source. It refuses a skit that already names another backdrop. Synthetic fixtures only.
  */
 
-$temporaryRoot = sys_get_temp_dir() . '/ichiloto-skit-backdrop-upgrade-' . bin2hex(random_bytes(8));
+$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-skit-backdrop-upgrade-' . bin2hex(random_bytes(8));
 
 final class SkitBackdropUpgradeFailure extends Exception
 {
