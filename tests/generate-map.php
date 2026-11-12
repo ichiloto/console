@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\GenerateMapCommand;
 use Symfony\Component\Console\Command\Command;
@@ -8,7 +9,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$temporaryRoot = sys_get_temp_dir() . '/ichiloto-map-' . bin2hex(random_bytes(8));
+$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-map-' . bin2hex(random_bytes(8));
 $mapsRoot = $temporaryRoot . '/assets/Maps';
 $mapDirectory = $mapsRoot . '/moonlit-glade';
 $originalDirectory = getcwd() ?: dirname(__DIR__);

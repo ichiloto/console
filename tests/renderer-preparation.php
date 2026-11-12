@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\PlayCommand;
 use Ichiloto\Console\Commands\RendererUpdateCommand;
@@ -30,7 +31,7 @@ function expectUpdateFailure(callable $action, string $message): void
     throw new RuntimeException('Expected update failure: ' . $message);
 }
 
-$root = sys_get_temp_dir() . '/ichiloto-renderer-update-' . bin2hex(random_bytes(8));
+$root = \getConsoleTestTemporaryDirectory() . '/ichiloto-renderer-update-' . bin2hex(random_bytes(8));
 $engine = $root . '/engine';
 $source = $root . '/native';
 $project = $root . '/project with spaces';

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Support\EditorProjectBootstrap;
 use Ichiloto\Console\Support\GuiEditorLocator;
@@ -21,7 +22,7 @@ function assertGuiLaunch(bool $condition, string $message): void
     }
 }
 
-$workspace = sys_get_temp_dir() . '/ichiloto-gui-launch-' . uniqid();
+$workspace = \getConsoleTestTemporaryDirectory() . '/ichiloto-gui-launch-' . uniqid();
 $console = $workspace . '/console';
 $release = $workspace . '/gui-editor/target/release/' . GuiEditorLocator::BINARY;
 $debug = $workspace . '/gui-editor/target/debug/' . GuiEditorLocator::BINARY;

@@ -24,7 +24,12 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Editor\Database\ProjectTroopKeeper;
 use Ichiloto\Engine\Scenes\Arena\ArenaScene;
+use Ichiloto\Engine\Scenes\Arena\BattleTestChoices;
+use Ichiloto\Engine\Scenes\Arena\BattleTestItem;
+use Ichiloto\Engine\Scenes\Arena\BattleTestLoadoutCatalog;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
+use Ichiloto\Engine\Scenes\Arena\BattleTestVital;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
 use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Battle\Simulation\SimulationReport;
@@ -91,8 +96,12 @@ class BattleCommand extends Command
       ->addOption('runs', 'r', InputOption::VALUE_REQUIRED, 'Simulate this many battles instead of playing one.')
       ->addOption('turn-limit', 'l', InputOption::VALUE_REQUIRED, 'How long a simulated battle may run before it counts as a slog.', '50')
       ->addOption('member', 'm', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
-        sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b]; repeat for each, up to %d. Without it, the starting party.',
+        sprintf('A party member, as Actor[:level][,Slot=item...][,Commands=a|b][,Skills=a|b][,Summons=a|b][,HP=n|n%%][,MP=n|n%%][,States=a|b][,Form=name];'
+          . ' repeat for each, up to %d. Without it, the project\'s battle test party or the starting party.',
           class_exists(BattleTestSetup::class) ? BattleTestSetup::MAX_MEMBERS : 4))
+      ->addOption('item', 'i', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+        'An item the party holds, as Item=quantity; repeat for each. Without it, the project\'s battle test items, or 99 of every item.')
+      ->addOption('no-items', null, InputOption::VALUE_NONE, 'The party holds no items.')
       ->addOption('arena', 'a', InputOption::VALUE_REQUIRED,
         'The battle presentation\'s arena to fight in, by key, drawn by a graphical renderer. Without it, its default arena; the arena can also be chosen on the troop list.');
     LaunchRequest::addOptions($this, $this->rendererTargets, 'Renderer to play the battle in', 'renderers');
@@ -163,11 +172,16 @@ class BattleCommand extends Command
       $this->registerProjectStores();
       // One setup for both: the party played with and the party simulated.
       $setup = $this->createSetup((array) $input->getOption('member'));
+      $setup = $this->chooseItems($setup, (array) $input->getOption('item'), (bool) $input->getOption('no-items'));
       if ($arena !== null) {
         $setup = $this->chooseArena($setup, strval($arena));
       }
       if (! $playing) {
         $this->refuseUnsimulatedLoadouts($setup);
+        if ($input->getOption('item') !== [] || $input->getOption('no-items')) {
+          throw new InvalidArgumentException('--runs cannot use --item or --no-items. Nobody uses items in a simulation, so its numbers'
+            . ' would never exercise them. Leave out --runs to play the fight and use them.');
+        }
         $party = $setup->createParty($this->getActorStore(), $this->getItemStore());
         $troops = $this->loadTroops($input->getOption('troop'));
       }
@@ -783,8 +797,13 @@ class BattleCommand extends Command
         $equipment[$slot] = $item?->id;
       }
       $level = $option->level ?? $actors->require($actorId, 'ichiloto battle')->createCharacter()->level;
+      $known = count($problems);
+      $condition = $this->resolveStartingCondition($option, $actorId, $problems);
+      if (count($problems) !== $known) {
+        continue;
+      }
       if ($option->commands === null && $option->skills === [] && $option->summons === []) {
-        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment);
+        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, ...$condition);
         continue;
       }
       if (! method_exists(BattleTestMember::class, 'withCommands')) {
@@ -797,10 +816,18 @@ class BattleCommand extends Command
       $summons = $this->resolveSummons($option, $problems);
       // A member whose loadout does not resolve is not built; its problems are all reported.
       if (count($problems) === $known) {
-        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, $commands, $skills, $summons);
+        $setupMembers[] = new BattleTestMember($actorId, $level, $equipment, $commands, $skills, $summons, ...$condition);
       }
     }
-    $setup = $setupMembers === [] ? null : new BattleTestSetup($setupMembers, $project?->setup?->arena ?? $project?->arena);
+    $setup = null;
+    if ($setupMembers !== []) {
+      $preset = $project?->toArray() ?? [];
+      unset($preset['troop']);
+      $setup = BattleTestSetup::fromArray([
+        ...$preset,
+        'members' => array_map(static fn(BattleTestMember $member): array => $member->toArray(), $setupMembers),
+      ]);
+    }
     $problems = [...$problems, ...($setup?->getProblems($actors, $items) ?? [])];
     if ($problems !== [] || $setup === null) {
       throw new InvalidArgumentException("The battle test party cannot be set up:\n" . implode("\n", $problems));
@@ -819,6 +846,10 @@ class BattleCommand extends Command
   protected function refuseUnsimulatedLoadouts(BattleTestSetup $setup): void
   {
     foreach ($setup->members as $member) {
+      if (($member->world ?? null) !== null) {
+        throw new InvalidArgumentException(sprintf('--member %s: --runs cannot use Form. The simulator has every party member'
+          . ' attack, so its numbers would never exercise a form\'s technique. Leave out --runs to play the fight.', $member->actorId));
+      }
       if (($member->commands ?? null) !== null || ($member->skills ?? []) !== [] || ($member->summons ?? []) !== []) {
         throw new InvalidArgumentException(sprintf(
           '--member %s: --runs cannot use Commands, Skills or Summons. The simulator has every party member attack, so'
@@ -911,6 +942,103 @@ class BattleCommand extends Command
     }
 
     return $summons;
+  }
+
+  /**
+   * Resolves a member's HP=, MP= and States= to the engine's starting
+   * condition: amounts as the engine reads them (points, or a percentage
+   * such as 9%), states by id or name among those the project defines.
+   *
+   * @param list<string> $problems Problems found, appended to.
+   * @return array{hp?: ?BattleTestVital, mp?: ?BattleTestVital, states?: list<string>} Named arguments for the member.
+   */
+  protected function resolveStartingCondition(BattleMemberOption $option, string $actorId, array &$problems): array
+  {
+    if ($option->hp === null && $option->mp === null && $option->states === [] && $option->form === null) {
+      return [];
+    }
+    if (! class_exists(BattleTestVital::class)) {
+      $problems[] = sprintf("--member %s: this project's engine cannot set a member's starting HP, MP or states; update its engine.", $option->actor);
+      return [];
+    }
+    $condition = [];
+    foreach (['hp' => $option->hp, 'mp' => $option->mp] as $key => $amount) {
+      try {
+        $condition[$key] = $amount === null ? null : BattleTestVital::parse($amount);
+      } catch (InvalidArgumentException $invalid) {
+        $problems[] = sprintf('--member %s: %s %s', $option->actor, strtoupper($key), $invalid->getMessage());
+      }
+    }
+    $states = [];
+    foreach ($option->states as $reference) {
+      $state = StateRegistry::get($reference)
+        ?? array_find(StateRegistry::all(), static fn($state): bool => strcasecmp($state->name, $reference) === 0);
+      if ($state === null) {
+        $problems[] = sprintf('--member %s: the project has no state %s (states: %s).', $option->actor, $reference,
+          StateRegistry::all() === [] ? 'none' : implode(', ', array_keys(StateRegistry::all())));
+        continue;
+      }
+      $states[] = $state->id;
+    }
+
+    if ($option->form !== null && ! method_exists(BattleTestChoices::class, 'findForm')) {
+      $problems[] = sprintf("--member %s: this project's engine cannot set a member's form; update its engine.", $option->actor);
+    } elseif ($option->form !== null) {
+      $choices = new BattleTestChoices($this->getActorStore(), $this->getItemStore(), BattleTestLoadoutCatalog::getProjectCatalog());
+      $world = $choices->findForm($actorId, $option->form);
+      $forms = array_values(array_filter(array_column($choices->getFormChoices($actorId), 'technique')));
+      if ($world === null) {
+        $problems[] = sprintf('--member %s: it has no form %s (forms: %s).', $option->actor, $option->form,
+          $forms === [] ? 'none; its techniques depend on no story setting' : implode(', ', $forms));
+      } else {
+        $condition['world'] = $world;
+      }
+    }
+
+    return [...$condition, 'states' => array_values(array_unique($states))];
+  }
+
+  /**
+   * The setup holding the items --item names, Item=quantity resolved by id
+   * or name, or none with --no-items; as it is without either.
+   *
+   * @param list<string> $references The --item values.
+   * @throws InvalidArgumentException Naming every problem.
+   */
+  protected function chooseItems(BattleTestSetup $setup, array $references, bool $none): BattleTestSetup
+  {
+    if ($references === [] && ! $none) {
+      return $setup;
+    }
+    if (! method_exists($setup, 'withInventory')) {
+      throw new InvalidArgumentException("This project's engine cannot set the battle test party's items; update its engine.");
+    }
+    if ($references !== [] && $none) {
+      throw new InvalidArgumentException('--no-items and --item cannot be used together; give the items, or none.');
+    }
+    $items = $this->getItemStore();
+    $entries = [];
+    $problems = [];
+    foreach ($references as $value) {
+      [$reference, $quantity] = array_pad(array_map(trim(...), explode('=', strval($value), 2)), 2, null);
+      $id = $reference === '' ? null : $items->get($reference)?->id;
+      if ($quantity === null || preg_match('/\A[1-9][0-9]*\z/', $quantity) !== 1) {
+        $problems[] = sprintf('--item "%s": give the item and how many, such as Potion=5.', $value);
+      } elseif ($id === null) {
+        $problems[] = sprintf('--item %s: the project has no item %s.', $value, $reference);
+      } elseif (isset($entries[$id])) {
+        $problems[] = sprintf('--item %s: %s is given more than once.', $value, $reference);
+      } else {
+        $entries[$id] = new BattleTestItem($id, (int) $quantity);
+      }
+    }
+    $chosen = $problems === [] ? $setup->withInventory(array_values($entries)) : $setup;
+    $problems = [...$problems, ...($problems === [] ? $chosen->getProblems($this->getActorStore(), $items) : [])];
+    if ($problems !== []) {
+      throw new InvalidArgumentException("The battle test party's items cannot be set:\n" . implode("\n", $problems));
+    }
+
+    return $chosen;
   }
 
   /**

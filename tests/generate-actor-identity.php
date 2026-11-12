@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Commands\GenerateActorCommand;
 use Symfony\Component\Console\Command\Command;
@@ -8,7 +9,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$root = sys_get_temp_dir() . '/ichiloto-generated-actor-' . bin2hex(random_bytes(8));
+$root = \getConsoleTestTemporaryDirectory() . '/ichiloto-generated-actor-' . bin2hex(random_bytes(8));
 $previousDirectory = getcwd() ?: dirname(__DIR__);
 $actorPath = $root . '/assets/Data/Actors/AriaVale.php';
 

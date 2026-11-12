@@ -440,6 +440,23 @@ composer install
 
 Run `./bin/ichiloto list` as a quick smoke test after dependency changes.
 
+Run `composer test` for the headless CLI checks. Tests creating temporary files
+load `tests/fixtures/temporary.php` and use
+`getConsoleTestTemporaryDirectory()` as their base. One shared owner holds the
+run lock, cleans normal and fatal exits, and recovers abandoned generated runs.
+Cleanup failures fail the process; symlink targets, project saves and deliberate
+review exports remain outside the fixture's ownership. The lifecycle probe in
+`tests/temporary-fixtures.php` exercises real child processes and locks.
+
+The validation and battle-report checks share `tests/fixtures/IntegrationProject.php`.
+It builds a small source-only project through the production scaffolder. Both
+checks run with synthetic content during `composer test`; they copy no game,
+assets, dependencies or saves. The validation check also resolves a project-local
+PSR-4 class from different working directories and reports a missing quest target.
+Set `ICHILOTO_GAME_SRC` to additionally validate a current game read-only from
+those working directories. Battle-report checks use the generated party and troop
+for repeatability, width, state restoration, failure cleanup and no-write checks.
+
 The `validate --migrate-actor-ids` work on `develop` uses
 `Ichiloto\Editor\Actors\ActorIdentityMigration`, which is not in Editor
 0.5.1. Before a future Console release includes that command, release a matching

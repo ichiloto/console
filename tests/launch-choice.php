@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 /**
  * `play`, `battle` and `edit` choose what to open the same way: with no
@@ -111,9 +112,9 @@ $never = static function (): never {
     assertLaunchChoice(false, 'A choice flag or a run without a terminal prompted.');
 };
 $select = static fn (LaunchTargetSelector $selector, LaunchTargetSource $targets, ?string $id, array $flags, bool $canPrompt): string
-    => $selector->selectTarget(new LaunchRequest($id, $flags), $targets, sys_get_temp_dir(), $canPrompt);
+    => $selector->selectTarget(new LaunchRequest($id, $flags), $targets, \getConsoleTestTemporaryDirectory(), $canPrompt);
 
-$workspace = sys_get_temp_dir() . '/ichiloto-launch-choice-' . bin2hex(random_bytes(6));
+$workspace = \getConsoleTestTemporaryDirectory() . '/ichiloto-launch-choice-' . bin2hex(random_bytes(6));
 $consoleRoot = $workspace . '/console';
 $guiBuild = $workspace . '/gui-editor/target/release/' . GuiEditorLocator::BINARY;
 mkdir($consoleRoot, 0777, true);

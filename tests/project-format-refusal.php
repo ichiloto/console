@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Upgrade\ProjectUpgradeChain;
 
@@ -18,7 +19,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 $consoleBin = dirname(__DIR__) . '/bin/ichiloto';
 $latest = ProjectUpgradeChain::createDefault()->latestVersion;
-$scratch = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ichiloto-format-authority-' . bin2hex(random_bytes(8));
+$scratch = \getConsoleTestTemporaryDirectory() . DIRECTORY_SEPARATOR . 'ichiloto-format-authority-' . bin2hex(random_bytes(8));
 
 /** @return array{exitCode: int, output: string} */
 function runFormatCommand(string $consoleBin, array $arguments): array

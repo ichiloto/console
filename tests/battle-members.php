@@ -135,6 +135,104 @@ try {
     assertBattleMembers($status === Command::INVALID && str_contains($display, 'no such actor'),
         '--runs refuses the same setup problems before simulating');
 
+    if (class_exists(\Ichiloto\Engine\Scenes\Arena\BattleTestVital::class)) {
+        file_put_contents($project . '/assets/Data/states.php', "<?php return [['id' => 'presence', 'name' => 'Presence'],"
+            . " ['id' => 'poison', 'name' => 'Poison', 'persistsAfterBattle' => true]];");
+        \Ichiloto\Engine\Entities\States\StateRegistry::reset();
+
+        [$command, $status] = runBattleMembers($project, ['Hero,HP=9%,MP=3,States=presence|Poison', 'mage'],
+            ['--item' => ['Potion=5']]);
+        $hero = $command->setup?->members[0];
+        assertBattleMembers($status === Command::SUCCESS
+            && $hero?->hp?->format() === '9%' && $hero->mp?->format() === '3' && $hero->states === ['presence', 'poison']
+            && $command->setup?->members[1]->hp === null
+            && array_map(static fn($item): array => $item->toArray(), $command->setup?->inventory ?? [])
+                === [['item' => 'item.potion', 'quantity' => 5]],
+            'HP, MP and States set how a member starts, and --item sets the party\'s items, resolved by id or name');
+
+        [$command, $status] = runBattleMembers($project, ['Hero'], ['--no-items' => true]);
+        assertBattleMembers($status === Command::SUCCESS && $command->setup?->inventory === [],
+            '--no-items sets a party that holds nothing');
+
+        [$command, $status] = runBattleMembers($project, ['Hero']);
+        assertBattleMembers($status === Command::SUCCESS && $command->setup?->inventory === null,
+            'without --item the party holds the default stock');
+
+        [$command, $status, $display] = runBattleMembers($project, ['Hero,HP=half,States=frozen'], ['--item' => ['Elixir=2', 'Potion']]);
+        assertBattleMembers($status === Command::INVALID && $command->setup === null
+            && str_contains($display, '--member Hero: HP "half" is not a starting amount')
+            && str_contains($display, '--member Hero: the project has no state frozen (states: presence, poison).'),
+            'an unreadable amount and an unknown state are named before a battle starts');
+
+        [$command, $status, $display] = runBattleMembers($project, ['Hero'], ['--item' => ['Elixir=2', 'Potion', 'Iron Sword=1']]);
+        assertBattleMembers($status === Command::INVALID && $command->setup === null
+            && str_contains($display, '--item Elixir=2: the project has no item Elixir.')
+            && str_contains($display, '--item "Potion": give the item and how many, such as Potion=5.'),
+            'every unknown or malformed item is named before a battle starts');
+
+        [, $status, $display] = runBattleMembers($project, ['Hero'], ['--item' => ['Iron Sword=1']]);
+        assertBattleMembers($status === Command::INVALID && str_contains($display, 'Iron Sword is equipment'),
+            'equipment is refused as an item the party carries, by the engine\'s own problems');
+
+        [, $status, $display] = runBattleMembers($project, ['Hero'], ['--item' => ['Potion=2'], '--runs' => '2']);
+        assertBattleMembers($status === Command::INVALID && str_contains($display, '--runs cannot use --item or --no-items'),
+            '--runs refuses items its simulation would never use');
+
+
+        if (class_exists(\Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::class)) {
+            $system = $project . '/assets/Data/system.php';
+            $original = (string) file_get_contents($system);
+            file_put_contents($system, "<?php return ['title' => 'Arena Test', 'currency' => [],\n"
+                . "  'startingPositions' => ['player' => []], 'startingParty' => ['hero', 'mage'],\n"
+                . "  'battleTest' => ['inventory' => [['item' => 'item.potion', 'quantity' => 4]]]];\n");
+            [$command, $status] = runBattleMembers($project, ['mage']);
+            assertBattleMembers($status === Command::SUCCESS
+                && array_map(static fn($item): array => $item->toArray(), $command->setup?->inventory ?? []) === [['item' => 'item.potion', 'quantity' => 4]],
+                "--member keeps the project's battle test items");
+            file_put_contents($system, $original);
+        }
+        if (method_exists(\Ichiloto\Engine\Scenes\Arena\BattleTestChoices::class, 'findForm')) {
+            // Hero's crisis technique depends on a story variable, as a shape-changing character's would.
+            file_put_contents($project . '/assets/Data/crisis-abilities.php', '<?php return ' . var_export([[
+                'id' => 'surge.hero', 'name' => 'Surge', 'hpBelowPercent' => 10.0, 'variants' => [
+                    ['skill' => 'Test Strike', 'conditions' => [['type' => 'variable', 'name' => 'hero_form', 'op' => '==', 'value' => 0]]],
+                    ['skill' => 'Test Call', 'conditions' => [['type' => 'variable', 'name' => 'hero_form', 'op' => '==', 'value' => 'beast']]],
+                ],
+            ]], true) . ';');
+            $heroFile = $project . '/assets/Data/Actors/Hero.php';
+            $heroSource = (string) file_get_contents($heroFile);
+            $hero = require $heroFile;
+            $hero['data']['crisisAbility'] = 'surge.hero';
+            file_put_contents($heroFile, '<?php return ' . var_export($hero, true) . ';');
+
+            [$command, $status] = runBattleMembers($project, ['Hero,Form=Test Call', 'mage']);
+            assertBattleMembers($status === Command::SUCCESS
+                && $command->setup?->members[0]->world?->toArray() === ['variables' => ['hero_form' => 'beast']]
+                && $command->setup?->members[1]->world === null,
+                'Form chooses the member\'s form by its technique');
+
+            [$command, $status] = runBattleMembers($project, ['Hero,Form=0']);
+            assertBattleMembers($status === Command::SUCCESS
+                && $command->setup?->members[0]->world?->toArray() === ['variables' => ['hero_form' => 0]],
+                'Form chooses the member\'s form by its story value');
+
+            [$command, $status, $display] = runBattleMembers($project, ['Hero,Form=werewolf', 'Mage,Form=beast']);
+            assertBattleMembers($status === Command::INVALID && $command->setup === null
+                && str_contains($display, '--member Hero: it has no form werewolf (forms: Test Strike, Test Call).')
+                && str_contains($display, '--member Mage: it has no form beast (forms: none; its techniques depend on no story setting).'),
+                'an unknown form and a member without forms are named before a battle starts');
+
+            [, $status, $display] = runBattleMembers($project, ['Hero,Form=beast'], ['--runs' => '2']);
+            assertBattleMembers($status === Command::INVALID && str_contains($display, '--runs cannot use Form'),
+                '--runs refuses a form its attack-only simulator would never use');
+
+            file_put_contents($heroFile, $heroSource);
+            unlink($project . '/assets/Data/crisis-abilities.php');
+        }
+        unlink($project . '/assets/Data/states.php');
+        \Ichiloto\Engine\Entities\States\StateRegistry::reset();
+    }
+
     if (method_exists(BattleTestSetup::class, 'withArena')) {
         [$command, $status, $display] = runBattleMembers($project, [], ['--arena' => 'arena.lake', '--renderer' => 'gpui']);
         assertBattleMembers($status === Command::INVALID && $command->setup === null
@@ -194,6 +292,28 @@ PHP);
             assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'mage'
                 && $command->setup?->arena === 'arena.lake',
                 "--arena replaces only the project's battle test arena, not its party");
+
+            if (property_exists(BattleTestSetup::class, 'inventory')) {
+                $preset = require $system;
+                $preset['battleTest']['inventory'] = [['item' => 'item.potion', 'quantity' => 2]];
+                $preset['battleTest']['battleSize'] = 2;
+                file_put_contents($system, '<?php return ' . var_export($preset, true) . ';');
+
+                [$command, $status, $display] = runBattleMembers($project, ['hero'], ['--renderer' => 'gpui']);
+                assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'hero'
+                    && $command->setup?->arena === 'arena.road'
+                    && $command->setup?->inventory[0]?->quantity === 2
+                    && $command->setup?->battleSize === 2,
+                    '--member preserves stock, frontline size and arena when replacing members: ' . $display);
+
+                unset($preset['battleTest']['members'], $preset['battleTest']['battleSize']);
+                $preset['battleTest']['inventory'] = [];
+                file_put_contents($system, '<?php return ' . var_export($preset, true) . ';');
+                [$command, $status, $display] = runBattleMembers($project, ['hero'], ['--renderer' => 'gpui']);
+                assertBattleMembers($status === Command::SUCCESS && $command->setup?->members[0]->actorId === 'hero'
+                    && $command->setup?->inventory === [],
+                    '--member preserves explicitly empty stock on a starting-party preset: ' . $display);
+            }
 
             file_put_contents($system, $original);
         }

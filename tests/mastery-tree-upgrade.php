@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Upgrade\ProjectUpgradeChain;
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
@@ -17,7 +18,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
  */
 
 $consoleRoot = dirname(__DIR__);
-$temporaryRoot = sys_get_temp_dir() . '/ichiloto-mastery-tree-upgrade-' . bin2hex(random_bytes(8));
+$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-mastery-tree-upgrade-' . bin2hex(random_bytes(8));
 
 final class MasteryTreeUpgradeFailure extends Exception
 {

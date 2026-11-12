@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Support\TerminalSessionChannel;
 use Ichiloto\Console\Support\TerminalSessionLauncher;
@@ -122,7 +123,7 @@ if (($argv[1] ?? '') === '--editor') {
     }
 }
 
-$base = sys_get_temp_dir();
+$base = \getConsoleTestTemporaryDirectory();
 if (! is_dir($base)) {
     throw new RuntimeException('The configured test scratch root is unavailable.');
 }

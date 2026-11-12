@@ -67,8 +67,12 @@ final class GameLaunchCommandBuilder
      */
     public function buildGameCommandArguments(string $mainFile, string $errorLogFile): array
     {
+        // The game works in the project memory its startup check was run in;
+        // PHP's 128M default runs out while a large world map is compiled.
         return [
             PHP_BINARY,
+            '-d',
+            'memory_limit=' . ProjectMemory::LIMIT,
             '-d',
             'display_errors=0',
             '-d',

@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Upgrade\ProjectUpgradeContext;
 use Ichiloto\Console\Upgrade\Steps\MasterySpendStep;
@@ -16,7 +17,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
  */
 
 $consoleRoot = dirname(__DIR__);
-$temporaryRoot = sys_get_temp_dir() . '/ichiloto-mastery-upgrade-' . bin2hex(random_bytes(8));
+$temporaryRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-mastery-upgrade-' . bin2hex(random_bytes(8));
 
 final class MasteryUpgradeFailure extends Exception
 {

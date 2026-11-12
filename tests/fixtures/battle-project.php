@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/temporary.php';
 
 /**
  * A disposable project with just enough for ichiloto battle to set up a
@@ -9,7 +10,7 @@ declare(strict_types=1);
  */
 function writeBattleTestProject(): string
 {
-    $root = sys_get_temp_dir() . '/ichiloto-battle-project-' . bin2hex(random_bytes(6));
+    $root = \getConsoleTestTemporaryDirectory() . '/ichiloto-battle-project-' . bin2hex(random_bytes(6));
     mkdir($root . '/vendor', 0o777, true);
     mkdir($root . '/assets/Data/Actors', 0o777, true);
     file_put_contents($root . '/ichiloto.json', json_encode(['name' => 'Arena Test']));

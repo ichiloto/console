@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/fixtures/temporary.php';
 
 use Ichiloto\Console\Support\NewProjectScaffolder;
 use Ichiloto\Engine\Core\ProjectFormat;
@@ -9,7 +10,7 @@ use Ichiloto\Engine\Field\MapLayer;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$projectRoot = sys_get_temp_dir() . '/ichiloto-new-project-' . bin2hex(random_bytes(8));
+$projectRoot = \getConsoleTestTemporaryDirectory() . '/ichiloto-new-project-' . bin2hex(random_bytes(8));
 $scaffolder = new NewProjectScaffolder();
 
 /** Removes only this test's unique disposable project directory. */
