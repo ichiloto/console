@@ -260,12 +260,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/ichiloto/editor.git",
-                "reference": "51528c5d5d96dffafa9487f28ad2cf08515a5f9b"
+                "reference": "7412b4fd2ab14a0a28cec7dfbd08148fba89c0cb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ichiloto/editor/zipball/51528c5d5d96dffafa9487f28ad2cf08515a5f9b",
-                "reference": "51528c5d5d96dffafa9487f28ad2cf08515a5f9b",
+                "url": "https://api.github.com/repos/ichiloto/editor/zipball/7412b4fd2ab14a0a28cec7dfbd08148fba89c0cb",
+                "reference": "7412b4fd2ab14a0a28cec7dfbd08148fba89c0cb",
                 "shasum": ""
             },
             "require": {
@@ -304,7 +304,7 @@
                 "issues": "https://github.com/ichiloto/editor/issues",
                 "source": "https://github.com/ichiloto/editor/tree/develop"
             },
-            "time": "2026-10-26T13:26:08+00:00"
+            "time": "2026-11-12T10:01:35+00:00"
         },
         {
             "name": "ichiloto/engine",
@@ -312,12 +312,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/ichiloto/engine.git",
-                "reference": "d83f1ff7d88e1e68ce269f47f83a34f3a9f06f86"
+                "reference": "06ecb2626171e0d3f24e613b0cc1f83ba09f84f5"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ichiloto/engine/zipball/d83f1ff7d88e1e68ce269f47f83a34f3a9f06f86",
-                "reference": "d83f1ff7d88e1e68ce269f47f83a34f3a9f06f86",
+                "url": "https://api.github.com/repos/ichiloto/engine/zipball/06ecb2626171e0d3f24e613b0cc1f83ba09f84f5",
+                "reference": "06ecb2626171e0d3f24e613b0cc1f83ba09f84f5",
                 "shasum": ""
             },
             "require": {
@@ -328,6 +328,7 @@
                 "league/climate": "^3.9",
                 "php": "^8.4.1",
                 "symfony/console": "^8.0",
+                "symfony/polyfill-intl-grapheme": "^1.33",
                 "voku/portable-ascii": "^2.0"
             },
             "require-dev": {
@@ -359,7 +360,7 @@
                 "issues": "https://github.com/ichiloto/engine/issues",
                 "source": "https://github.com/ichiloto/engine/tree/develop"
             },
-            "time": "2026-10-26T15:03:22+00:00"
+            "time": "2026-11-12T09:02:58+00:00"
         },
         {
             "name": "laravel/prompts",
